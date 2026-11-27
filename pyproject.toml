@@ -3,12 +3,18 @@ name = "agent-service"
 version = "2.0.0"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi>=0.115",
     "google-genai",
     "httpx>=0.28,<1",
+    "numpy>=2.5.5",
+    "openai>=1.70",
     "prompt-toolkit",
     "pydantic>=2.12,<3",
+    "pymupdf>=2.2",
+    "python-multipart>=0.0.20",
     "pyyaml",
     "rich",
+    "uvicorn[standard]>=0.34",
 ]
 
 [build-system]

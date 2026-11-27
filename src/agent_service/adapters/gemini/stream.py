@@ -1,6 +1,8 @@
+import warnings
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
+from google import genai
 from google.genai import types
 
 from agent_service.adapters.gemini.client import get_client
@@ -8,21 +10,50 @@ from agent_service.config.settings import settings
 from agent_service.kernel.model.port import StreamEvent, StreamResult
 
 
+def _build_thinking_config(thinking_level: str | None) -> types.ThinkingConfig | None:
+    if not thinking_level:
+        return None
+    normalized = thinking_level.strip().lower()
+    if not normalized or normalized == "off":
+        return None
+    upper = normalized.upper()
+    enum_member = getattr(types.ThinkingLevel, upper, None)
+    if enum_member is not None:
+        return types.ThinkingConfig(
+            thinking_level=enum_member,
+            include_thoughts=True,
+        )
+    # 兼容新档位（如 Gemini 4 的 XHIGH），在当前 SDK 尚未补充枚举项时透传并静默告警
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return types.ThinkingConfig(
+            thinking_level=cast(Any, upper),
+            include_thoughts=True,
+        )
+
+
 async def stream_message(
     contents: Any,
     system_prompt: str | None = "你是一位编程助手",
     max_tokens: int | None = None,
     tools: list[types.Tool] | None = None,
+    *,
+    model_name: str | None = None,
+    client: genai.Client | None = None,
+    thinking_level: str | None = None,
 ) -> AsyncGenerator[StreamEvent]:
-    client = get_client()
+    active_client = client if client is not None else get_client()
+    active_model = model_name or settings.model_config.name
 
+    thinking_config = _build_thinking_config(thinking_level)
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         max_output_tokens=max_tokens,
         tools=tools,
+        thinking_config=thinking_config,
     )
-    response = await client.aio.models.generate_content_stream(
-        model=settings.model_config.name,
+    response = await active_client.aio.models.generate_content_stream(
+        model=active_model,
         contents=contents,
         config=config,
     )
@@ -30,8 +61,8 @@ async def stream_message(
     yield StreamEvent(type="message_start")
 
     full_text: str = ""
-    full_parts: list = []
-    calls: list = []
+    full_parts: list[types.Part] = []
+    calls: list[types.FunctionCall] = []
     input_tokens: int = 0
     output_tokens: int = 0
     cached_tokens: int = 0
@@ -62,8 +93,11 @@ async def stream_message(
                     for part in parts:
                         full_parts.append(part)
                         if part.text:
-                            full_text += part.text
-                            yield StreamEvent(type="text", text=part.text)
+                            if getattr(part, "thought", False):
+                                yield StreamEvent(type="thinking", text=part.text)
+                            else:
+                                full_text += part.text
+                                yield StreamEvent(type="text", text=part.text)
                         if part.function_call:
                             fc = part.function_call
                             calls.append(fc)

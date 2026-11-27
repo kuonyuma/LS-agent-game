@@ -476,7 +476,7 @@ async def test_query_denies_write_tool_without_permission_callback(
 
 
 @pytest.mark.asyncio
-async def test_query_stops_after_ten_tool_turns(monkeypatch):
+async def test_query_stops_at_explicit_max_turns(monkeypatch):
     call_count = 0
 
     async def fake_stream_message(*args, **kwargs):
@@ -484,7 +484,7 @@ async def test_query_stops_after_ten_tool_turns(monkeypatch):
         call_count += 1
         yield message_done(
             function_calls=[
-                types.FunctionCall(name="not_registered", args={}),
+                types.FunctionCall(name="not_registered", args={"step": call_count}),
             ]
         )
 
@@ -494,9 +494,16 @@ async def test_query_stops_after_ten_tool_turns(monkeypatch):
         fake_stream_message,
     )
 
-    events = [event async for event in query(initial_contents(), tools=get_function_declarations())]
+    events = [
+        event
+        async for event in query(
+            initial_contents(),
+            tools=get_function_declarations(),
+            max_turns=4,
+        )
+    ]
 
-    assert call_count == 10
+    assert call_count == 4
     assert events[-1].type == "run.failed"
     assert events[-1].result is not None
     assert events[-1].result.reason == "max_turns"

@@ -19,7 +19,7 @@ def _format_contents_for_summary(contents: list[types.Content]) -> str:
     for item in contents:
         role_label = "用户" if item.role == "user" else "助手"
         for part in item.parts or []:
-            if part.text:
+            if part.text and not getattr(part, "thought", False):
                 lines.append(f"[{role_label}]: {part.text}")
             if part.function_call is not None:
                 fc = part.function_call

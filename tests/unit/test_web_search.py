@@ -5,6 +5,7 @@ import pytest
 
 from agent_service.adapters.tools.web_search import (
     WebSearchTool,
+    parse_deepseek_search_results,
     parse_duckduckgo_html,
     unwrap_search_url,
 )
@@ -127,3 +128,93 @@ async def test_web_search_handles_network_timeout_gracefully():
 
     assert result.is_error
     assert "超时" in result.content
+
+
+def test_parse_deepseek_search_results_prefers_summary_and_deduplicates():
+    payload = {
+        "results": [
+            {
+                "rerank_score": 2.4,
+                "title": "DeepSeek V4 发布",
+                "url": "https://example.com/v4",
+                "snippet": "简短摘要",
+                "summary": "面向模型的完整长摘要内容，包含关键细节。",
+                "site_name": "科技资讯",
+                "date": "2026-11-18T12:00:00+00:00",
+            },
+            {
+                "title": "重复链接应去重",
+                "url": "https://example.com/v4",
+                "snippet": "duplicate",
+            },
+            {
+                "title": "仅含 snippet 的条目",
+                "url": "https://example.com/other",
+                "snippet": "回退到 snippet",
+                "summary": "",
+                "site_name": None,
+                "date": None,
+            },
+        ]
+    }
+    items = parse_deepseek_search_results(payload, max_results=5)
+    assert len(items) == 2
+    assert items[0].snippet == "面向模型的完整长摘要内容，包含关键细节。"
+    assert items[0].site_name == "科技资讯"
+    assert items[0].published_at == "2026-11-18"
+    assert items[1].snippet == "回退到 snippet"
+
+
+@pytest.mark.asyncio
+async def test_web_search_uses_deepseek_api_when_key_present():
+    captured: dict[str, object] = {}
+
+    async def fake_ds_fetcher(query: str, max_results: int, api_key: str):
+        captured["query"] = query
+        captured["max_results"] = max_results
+        captured["api_key"] = api_key
+        return {
+            "results": [
+                {
+                    "title": "英伟达最新财报解读",
+                    "url": "https://example.com/nvda",
+                    "summary": "英伟达公布最新季度营收与数据中心业务增速。",
+                    "site_name": "财经头条",
+                    "date": "2026-11-20T08:00:00+00:00",
+                }
+            ]
+        }
+
+    tool = WebSearchTool(
+        deepseek_api_key="sk-ds-test",
+        deepseek_fetcher=fake_ds_fetcher,
+    )
+    result = await tool.run({"query": "英伟达最新财报", "max_results": 3})
+
+    assert not result.is_error
+    assert captured == {
+        "query": "英伟达最新财报",
+        "max_results": 3,
+        "api_key": "sk-ds-test",
+    }
+    assert "DeepSeek Search API" in result.content
+    assert "英伟达最新财报解读" in result.content
+    assert "财经头条 · 2026-11-20" in result.content
+
+
+@pytest.mark.asyncio
+async def test_web_search_reports_deepseek_auth_error():
+    async def unauthorized_ds(query: str, max_results: int, api_key: str):
+        _ = (query, max_results, api_key)
+        req = httpx.Request("POST", "https://api.deepseek.com/v1/tools/search")
+        resp = httpx.Response(401, request=req)
+        raise httpx.HTTPStatusError("401", request=req, response=resp)
+
+    tool = WebSearchTool(
+        deepseek_api_key="sk-bad",
+        deepseek_fetcher=unauthorized_ds,
+    )
+    result = await tool.run({"query": "test"})
+    assert result.is_error
+    assert "HTTP 401" in result.content
+    assert "无效" in result.content

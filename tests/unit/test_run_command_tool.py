@@ -1,9 +1,11 @@
 """RunCommand 工具的单元测试。"""
 
+from pathlib import Path
 from subprocess import CompletedProcess
 
 import pytest
 
+from agent_service.adapters.security.workspace import WorkspacePathPolicy
 from agent_service.adapters.tools import run_command
 from agent_service.adapters.tools.run_command import RunCommandTool
 
@@ -62,3 +64,20 @@ def test_tool_metadata():
     assert tool.read_only is False
     assert tool.input_schema["required"] == ["command"]
     assert tool.to_function_declaration().name == "run_command"
+
+
+@pytest.mark.asyncio
+async def test_run_command_uses_workspace_root_as_cwd(monkeypatch, tmp_path: Path):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(run_command.subprocess, "run", fake_run)
+
+    policy = WorkspacePathPolicy(tmp_path)
+    result = await RunCommandTool(policy).run({"command": "dir"})
+
+    assert not result.is_error
+    assert calls[0][1]["cwd"] == str(policy.root)

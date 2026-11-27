@@ -236,21 +236,68 @@ async def test_duplicate_and_missing_ids_match_model_parts_and_function_response
     )
 
 
-async def test_turn_limit_is_hard_even_if_caller_requests_more():
+async def test_unlimited_turns_by_default_allows_multi_step_tasks_beyond_ten_turns():
     tool = ProbeTool()
     model = ScriptedModel(
-        *[response(types.FunctionCall(name="probe")) for _ in range(12)]
+        *[
+            response(types.FunctionCall(name="probe", args={"step": idx}))
+            for idx in range(14)
+        ],
+        response(text="14 步全部完成"),
+    )
+
+    events = [event async for event in runner_for(model, tool).run_turn([], "测试")]
+
+    assert len(model.requests) == 15
+    assert len(tool.calls) == 14
+    assert events[-1].result is not None
+    assert events[-1].result.reason == "completed"
+    assert events[-1].result.turns == 15
+
+
+async def test_explicit_max_turns_still_enforces_limit():
+    tool = ProbeTool()
+    model = ScriptedModel(
+        *[
+            response(types.FunctionCall(name="probe", args={"step": idx}))
+            for idx in range(6)
+        ]
     )
 
     events = [
         event
-        async for event in runner_for(model, tool, max_turns=100).run_turn([], "测试")
+        async for event in runner_for(model, tool, max_turns=4).run_turn([], "测试")
     ]
 
-    assert len(model.requests) == len(tool.calls) == 10
+    assert len(model.requests) == len(tool.calls) == 4
     assert events[-1].result is not None
     assert events[-1].result.reason == "max_turns"
-    assert events[-1].result.turns == 10
+    assert events[-1].result.turns == 4
+
+
+async def test_repeat_loop_detection_warns_and_aborts_stuck_calls():
+    tool = ProbeTool()
+    model = ScriptedModel(
+        *[
+            response(types.FunctionCall(name="probe", args={"same": True}))
+            for _ in range(8)
+        ]
+    )
+
+    events = [event async for event in runner_for(model, tool).run_turn([], "测试")]
+
+    assert len(model.requests) == 5
+    assert events[-1].type == "run.failed"
+    assert events[-1].result is not None
+    assert events[-1].result.reason == "error"
+    assert "死循环保护" in str(events[-1].result.error)
+    # 第 3 轮结束后、第 4 轮请求前应注入死循环提醒
+    turn4_texts = [
+        p.text or ""
+        for c in model.requests[3]["contents"]
+        for p in (c.parts or [])
+    ]
+    assert any("死循环检测" in t for t in turn4_texts)
 
 
 @pytest.mark.parametrize("limit", [0, -1, True])

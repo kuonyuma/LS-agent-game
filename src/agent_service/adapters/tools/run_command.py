@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 from typing import Any, ClassVar
 
+from agent_service.adapters.security.workspace import WorkspacePathPolicy
 from agent_service.kernel.dispatch.base import Tool, ToolResult
 
 
@@ -24,20 +25,29 @@ class RunCommandTool(Tool):
     }
     read_only = False
 
+    def __init__(self, workspace: WorkspacePathPolicy | None = None) -> None:
+        self.workspace = workspace
+
     async def run(self, parameter: dict[str, Any]) -> ToolResult:
         command = parameter.get("command", "")
 
         if command == "":
             return ToolResult(is_error=True, content="执行的命令command为空")
 
+        run_kwargs: dict[str, Any] = {
+            "shell": True,
+            "capture_output": True,
+            "text": True,
+            "check": False,
+        }
+        if self.workspace is not None:
+            run_kwargs["cwd"] = str(self.workspace.root)
+
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
                 command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=False,
+                **run_kwargs,
             )
         except OSError as exc:
             return ToolResult(content=f"执行命令出错\n错误信息:{exc}", is_error=True)

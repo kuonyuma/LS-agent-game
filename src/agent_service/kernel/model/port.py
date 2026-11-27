@@ -16,7 +16,7 @@ class StreamResult:
 
 @dataclass
 class StreamEvent:
-    type: Literal["message_start", "text", "tool_use_start", "message_done"]
+    type: Literal["message_start", "thinking", "text", "tool_use_start", "message_done"]
     text: str = ""
     id: str = ""
     name: str = ""

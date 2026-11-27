@@ -95,3 +95,56 @@ async def test_stream_message_extracts_cached_content_token_count(monkeypatch):
         "output_len": 30,
         "cached_len": 96,
     }
+
+
+@pytest.mark.asyncio
+async def test_stream_message_forwards_thinking_level_for_gemini_4(monkeypatch):
+    import agent_service.adapters.gemini.stream as stream_module
+
+    captured: list[dict] = []
+
+    async def fake_chunks():
+        yield SimpleNamespace(
+            usage_metadata=None,
+            candidates=[
+                SimpleNamespace(
+                    finish_reason="STOP",
+                    content=SimpleNamespace(
+                        parts=[SimpleNamespace(text="ok", function_call=None)]
+                    ),
+                )
+            ],
+        )
+
+    async def fake_stream(**kwargs):
+        captured.append(kwargs)
+        return fake_chunks()
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(
+            models=SimpleNamespace(generate_content_stream=fake_stream)
+        )
+    )
+    monkeypatch.setattr(stream_module, "get_client", lambda: fake_client)
+
+    for level in ("high", "xhigh"):
+        _ = [
+            ev
+            async for ev in stream_module.stream_message(
+                contents=[],
+                system_prompt="测试",
+                model_name="gemini-4-hydrogen",
+                thinking_level=level,
+            )
+        ]
+
+    assert len(captured) == 2
+    tc_high = captured[0]["config"].thinking_config
+    assert tc_high is not None
+    assert tc_high.include_thoughts is True
+    assert str(tc_high.thinking_level).endswith("HIGH")
+
+    tc_xhigh = captured[1]["config"].thinking_config
+    assert tc_xhigh is not None
+    assert tc_xhigh.include_thoughts is True
+    assert str(tc_xhigh.thinking_level).upper().endswith("XHIGH")

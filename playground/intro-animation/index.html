@@ -1,0 +1,3284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Model Constellation — Opening Motion Study</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --ink-subtle: rgba(15, 23, 42, 0.42);
+      --ink-mid: rgba(15, 23, 42, 0.72);
+      --ink-strong: rgba(15, 23, 42, 0.92);
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #f4f4f6;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+
+    /* 主舞台：100% 零文字，极简光学影棚 */
+    #stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      cursor: default;
+      touch-action: none;
+    }
+
+    #stage.is-draggable {
+      cursor: grab;
+    }
+
+    #stage.is-dragging {
+      cursor: grabbing;
+    }
+
+    /* 底层：动态影棚色温、贴地倒影、粒子星环、9道向心彗尾 */
+    #field-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+    }
+
+    /* 3D 卡片层（perspective 由 JS 随镜头焦距动态驱动，实现真实长焦呼吸感） */
+    #cards-layer {
+      position: absolute;
+      inset: 0;
+      perspective: 1380px;
+      perspective-origin: 50% 47%;
+      pointer-events: none;
+    }
+
+    .vendor-card {
+      position: absolute;
+      top: 0;
+      left: 0;
+      border-radius: 22px;
+      background: linear-gradient(
+        155deg,
+        rgba(255, 255, 255, 0.99) 0%,
+        rgba(253, 253, 255, 0.95) 60%,
+        rgba(246, 247, 252, 0.92) 100%
+      );
+      border: 1px solid rgba(255, 255, 255, 0.98);
+      box-shadow:
+        0 1.5px 0 rgba(255, 255, 255, 1) inset,
+        0 -1px 0 rgba(15, 23, 42, 0.045) inset,
+        0 0 0 1px rgba(15, 23, 42, 0.088),
+        0 24px 52px -20px rgba(15, 23, 42, 0.18),
+        0 8px 22px -8px rgba(15, 23, 42, 0.09);
+      overflow: hidden;
+      will-change: transform, opacity, filter;
+      transform-style: preserve-3d;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+
+    /* 动态镜面玻璃反光层（随 3D 朝向角 rotY/rotX 实时滑动高光带） */
+    .vendor-card .card-sheen {
+      position: absolute;
+      inset: -25%;
+      pointer-events: none;
+      z-index: 4;
+      background: linear-gradient(
+        112deg,
+        rgba(255, 255, 255, 0) 34%,
+        rgba(255, 255, 255, 0.62) 48%,
+        rgba(255, 255, 255, 0.92) 50%,
+        rgba(255, 255, 255, 0.35) 53%,
+        rgba(255, 255, 255, 0) 66%
+      );
+      opacity: 0.35;
+      will-change: transform, opacity;
+      mix-blend-mode: overlay;
+    }
+
+    /* 玻璃倒角高光内边 */
+    .vendor-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      box-shadow:
+        0 1px 2px rgba(255, 255, 255, 0.95) inset,
+        0 0 0 1px rgba(255, 255, 255, 0.55) inset;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .vendor-card canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 2;
+    }
+
+    /* 终场中心凝聚态：纯无字光学呼吸胶囊（未来无缝展开为「智启 Agent」输入框 Composer） */
+    #finale-core {
+      position: absolute;
+      left: 50%;
+      top: 47.5%;
+      width: min(520px, 76vw);
+      height: 98px;
+      border-radius: 26px;
+      transform: translate(-50%, -50%) scale(0.72);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 22;
+      background: linear-gradient(
+        160deg,
+        rgba(255, 255, 255, 0.96) 0%,
+        rgba(252, 251, 255, 0.91) 100%
+      );
+      border: 1px solid rgba(255, 255, 255, 0.98);
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 1) inset,
+        0 0 0 1px rgba(124, 58, 237, 0.13),
+        0 28px 64px -22px rgba(124, 58, 237, 0.22),
+        0 10px 26px -10px rgba(15, 23, 42, 0.08);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      overflow: hidden;
+      will-change: transform, opacity;
+    }
+
+    #finale-core canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* 终态环绕粒子星环的 9 枚可交互微缩徽章（带 3D 纵深缩放与柔和层次） */
+    #orbit-badges {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 26;
+    }
+
+    .orbit-badge {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 48px;
+      height: 48px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.96);
+      border: 1.5px solid rgba(255, 255, 255, 1);
+      box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.095),
+        0 12px 28px -8px rgba(15, 23, 42, 0.17);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      cursor: pointer;
+      transition: box-shadow 220ms ease, background-color 220ms ease, border-color 220ms ease;
+      will-change: transform, opacity;
+      opacity: 0;
+    }
+
+    .orbit-badge:hover {
+      background: #ffffff;
+      box-shadow:
+        0 0 0 1.5px rgba(15, 23, 42, 0.18),
+        0 16px 34px -6px rgba(15, 23, 42, 0.24);
+    }
+
+    .orbit-badge canvas {
+      width: 28px;
+      height: 28px;
+      display: block;
+    }
+
+    .studio-vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 78% 68% at 50% 47%, rgba(255, 255, 255, 0) 62%, rgba(186, 192, 206, 0.24) 100%);
+      z-index: 28;
+    }
+
+    /* 极简纯图标控制微条（无任何文字） */
+    #dock {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%);
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(15, 23, 42, 0.11);
+      box-shadow:
+        0 12px 32px -12px rgba(15, 23, 42, 0.18),
+        0 1px 0 rgba(255, 255, 255, 1) inset;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      opacity: 0.72;
+      transition: opacity 240ms ease, background-color 240ms ease, box-shadow 240ms ease;
+    }
+
+    #dock:hover {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .dock-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--ink-mid);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 180ms ease, color 180ms ease, transform 160ms ease;
+    }
+
+    .dock-btn:hover {
+      background: rgba(15, 23, 42, 0.07);
+      color: var(--ink-strong);
+    }
+
+    .dock-btn:active {
+      transform: scale(0.92);
+    }
+
+    .dock-divider {
+      width: 1px;
+      height: 14px;
+      background: rgba(15, 23, 42, 0.14);
+      margin: 0 3px;
+    }
+
+    .dock-dots {
+      display: flex;
+      align-items: center;
+      gap: 6.5px;
+      padding: 0 5px;
+    }
+
+    .dock-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      background: rgba(15, 23, 42, 0.26);
+      transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), background-color 220ms ease, box-shadow 220ms ease;
+    }
+
+    .dock-dot:hover {
+      transform: scale(1.45);
+    }
+
+    .dock-dot.is-active {
+      transform: scale(1.55);
+      box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.09);
+    }
+
+    .speed-bars {
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 11px;
+    }
+
+    .speed-bars span {
+      width: 2.5px;
+      border-radius: 2px;
+      background: currentColor;
+      opacity: 0.28;
+      transition: opacity 160ms ease;
+    }
+
+    .speed-bars span:nth-child(1) { height: 5px; }
+    .speed-bars span:nth-child(2) { height: 8px; }
+    .speed-bars span:nth-child(3) { height: 11px; }
+
+    .speed-bars[data-level="1"] span:nth-child(1),
+    .speed-bars[data-level="2"] span:nth-child(1),
+    .speed-bars[data-level="2"] span:nth-child(2),
+    .speed-bars[data-level="3"] span {
+      opacity: 0.94;
+    }
+  </style>
+</head>
+<body>
+  <main id="stage">
+    <canvas id="field-canvas"></canvas>
+    <div id="cards-layer"></div>
+    <div id="finale-core" aria-hidden="true">
+      <canvas id="core-canvas"></canvas>
+    </div>
+    <div id="orbit-badges"></div>
+    <div class="studio-vignette"></div>
+  </main>
+
+  <nav id="dock" aria-label="Animation Controls">
+    <button class="dock-btn" id="btn-play" title="Play / Pause" aria-label="Play or Pause">
+      <svg id="icon-pause" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="6" y="4" width="4" height="16" rx="1.5"></rect>
+        <rect x="14" y="4" width="4" height="16" rx="1.5"></rect>
+      </svg>
+      <svg id="icon-play" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+        <path d="M7 4.8c0-1.1 1.2-1.7 2.1-1.2l11.2 7.2c.9.5.9 1.9 0 2.4L9.1 20.4c-.9.5-2.1-.1-2.1-1.2V4.8z"></path>
+      </svg>
+    </button>
+    <button class="dock-btn" id="btn-replay" title="Replay" aria-label="Replay">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path>
+        <path d="M3 3v5h5"></path>
+      </svg>
+    </button>
+    <div class="dock-divider"></div>
+    <div class="dock-dots" id="dock-dots"></div>
+    <div class="dock-divider"></div>
+    <button class="dock-btn" id="btn-speed" title="Playback Speed" aria-label="Toggle Speed">
+      <span class="speed-bars" id="speed-bars" data-level="2">
+        <span></span><span></span><span></span>
+      </span>
+    </button>
+    <button class="dock-btn" id="btn-end" title="Jump to Finale" aria-label="Jump to Finale">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="7.5" stroke-dasharray="3 3"></circle>
+        <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle>
+      </svg>
+    </button>
+  </nav>
+
+  <script>
+    (() => {
+      "use strict";
+
+      /* =====================================================================
+         1. 数学缓动、物理阻尼弹簧与基础工具
+         ===================================================================== */
+      const TAU = Math.PI * 2;
+      const clamp = (v, min = 0, max = 1) => Math.max(min, Math.min(max, v));
+      const lerp = (a, b, t) => a + (b - a) * t;
+      const smoothstep = (e0, e1, x) => {
+        const t = clamp((x - e0) / (e1 - e0));
+        return t * t * (3 - 2 * t);
+      };
+      const easeOutCubic = (t) => 1 - Math.pow(1 - clamp(t), 3);
+      const easeInOutCubic = (t) => {
+        const x = clamp(t);
+        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+      };
+      const easeOutQuint = (t) => 1 - Math.pow(1 - clamp(t), 5);
+      const easeInOutQuart = (t) => {
+        const x = clamp(t);
+        return x < 0.5 ? 8 * x * x * x * x : 1 - Math.pow(-2 * x + 2, 4) / 2;
+      };
+      // 柔和的欠阻尼弹性入场（轻微回弹质感，像 Apple / Linear 动效）
+      const easeSpringOut = (t) => {
+        const x = clamp(t);
+        if (x === 0 || x === 1) return x;
+        return 1 - Math.exp(-7.2 * x) * Math.cos(8.6 * x);
+      };
+      const easeOutBack = (t, s = 1.05) => {
+        const x = clamp(t) - 1;
+        return 1 + (s + 1) * x * x * x + s * x * x;
+      };
+
+      function rgba(rgb, a = 1) {
+        return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
+      }
+
+      function mixRgb(a, b, t) {
+        const k = clamp(t);
+        return [
+          Math.round(a[0] + (b[0] - a[0]) * k),
+          Math.round(a[1] + (b[1] - a[1]) * k),
+          Math.round(a[2] + (b[2] - a[2]) * k),
+        ];
+      }
+
+      function roundedRectPath(ctx, x, y, w, h, r) {
+        const rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+      }
+
+      /* =====================================================================
+         2. 九大主流模型厂商：官方标识 + 专属影棚色温 + 故事级无字微剧场
+            顺序经过导演级节奏编排，每家都有鲜明的灯光氛围与记忆点
+         ===================================================================== */
+      const DEFAULT_STUDIO = {
+        bgCenter: [248, 248, 250],
+        bgEdge: [232, 234, 240],
+        haloA: [124, 58, 237],
+        haloB: [216, 55, 126],
+        haloAlpha: 0.08,
+      };
+
+      const VENDORS = [
+        {
+          id: "gemini", // 多模态：Google 四色棱镜虹彩星尘
+          primary: [66, 133, 244],
+          secondary: [234, 67, 53],
+          accent: [52, 168, 83],
+          trail: {
+            head: [66, 133, 244],
+            mid: [52, 168, 83],
+            tail: [234, 67, 53],
+            spectrum: [[66, 133, 244], [52, 168, 83], [251, 188, 4], [234, 67, 53]],
+          },
+          studio: {
+            bgCenter: [247, 250, 255],
+            bgEdge: [228, 236, 249],
+            haloA: [66, 133, 244],
+            haloB: [251, 188, 4],
+            haloAlpha: 0.16,
+          },
+          fieldMode: "glint",
+          drawMark: drawGeminiMark,
+          drawScene: drawGeminiScene,
+        },
+        {
+          id: "openai", // 最早从 0 到 1：翡翠创世绿 + 墨黑微粒
+          primary: [17, 24, 39],
+          secondary: [16, 163, 127],
+          accent: [16, 185, 129],
+          trail: {
+            head: [16, 163, 127],
+            mid: [52, 211, 153],
+            tail: [17, 24, 39],
+          },
+          studio: {
+            bgCenter: [246, 252, 249],
+            bgEdge: [225, 240, 234],
+            haloA: [16, 163, 127],
+            haloB: [15, 23, 42],
+            haloAlpha: 0.15,
+          },
+          fieldMode: "bloom",
+          drawMark: drawOpenAIMark,
+          drawScene: drawOpenAIScene,
+        },
+        {
+          id: "claude", // 目前编程巅峰：温润陶土橘 + 暖琥珀星尘
+          primary: [217, 119, 87],
+          secondary: [194, 92, 62],
+          accent: [238, 158, 120],
+          trail: {
+            head: [217, 119, 87],
+            mid: [245, 158, 11],
+            tail: [234, 88, 12],
+          },
+          studio: {
+            bgCenter: [253, 247, 242],
+            bgEdge: [241, 226, 214],
+            haloA: [217, 119, 87],
+            haloB: [245, 178, 132],
+            haloAlpha: 0.19,
+          },
+          fieldMode: "compose",
+          drawMark: drawClaudeMark,
+          drawScene: drawClaudeScene,
+        },
+        {
+          id: "kimi", // 国内最智能：电光锐蓝 + 深夜墨黑星尘
+          primary: [15, 23, 42],
+          secondary: [22, 119, 255],
+          accent: [56, 189, 248],
+          trail: {
+            head: [22, 119, 255],
+            mid: [56, 189, 248],
+            tail: [15, 23, 42],
+          },
+          studio: {
+            bgCenter: [244, 248, 255],
+            bgEdge: [221, 231, 247],
+            haloA: [22, 119, 255],
+            haloB: [15, 23, 42],
+            haloAlpha: 0.17,
+          },
+          fieldMode: "double_arc",
+          drawMark: drawKimiMark,
+          drawScene: drawKimiScene,
+        },
+        {
+          id: "deepseek", // 最实惠：深寻深海蓝 + 冰河蓝青星尘
+          primary: [77, 107, 254],
+          secondary: [37, 99, 235],
+          accent: [14, 165, 233],
+          trail: {
+            head: [77, 107, 254],
+            mid: [37, 99, 235],
+            tail: [6, 182, 212],
+          },
+          studio: {
+            bgCenter: [242, 247, 255],
+            bgEdge: [216, 229, 252],
+            haloA: [77, 107, 254],
+            haloB: [14, 165, 233],
+            haloAlpha: 0.19,
+          },
+          fieldMode: "align",
+          drawMark: drawDeepSeekMark,
+          drawScene: drawDeepSeekScene,
+        },
+        {
+          id: "qwen", // 体验均衡：电光靛紫 + 薰衣草紫星尘
+          primary: [10, 62, 255],
+          secondary: [99, 102, 241],
+          accent: [168, 85, 247],
+          trail: {
+            head: [10, 62, 255],
+            mid: [124, 58, 237],
+            tail: [168, 85, 247],
+          },
+          studio: {
+            bgCenter: [245, 247, 255],
+            bgEdge: [224, 230, 250],
+            haloA: [10, 62, 255],
+            haloB: [99, 102, 241],
+            haloAlpha: 0.16,
+          },
+          fieldMode: "lattice",
+          drawMark: drawQwenMark,
+          drawScene: drawQwenScene,
+        },
+        {
+          id: "grok", // 最开放：奇点液态银黑 + 冷灰金属尾迹
+          primary: [15, 23, 42],
+          secondary: [71, 85, 105],
+          accent: [14, 165, 233],
+          trail: {
+            head: [15, 23, 42],
+            mid: [71, 85, 105],
+            tail: [148, 163, 184],
+          },
+          studio: {
+            bgCenter: [243, 244, 247],
+            bgEdge: [213, 217, 226],
+            haloA: [15, 23, 42],
+            haloB: [100, 116, 139],
+            haloAlpha: 0.17,
+          },
+          fieldMode: "slash",
+          drawMark: drawGrokMark,
+          drawScene: drawGrokScene,
+        },
+        {
+          id: "meta", // 国外开源：海洋蔚蓝 + 晴空天青星尘
+          primary: [0, 100, 224],
+          secondary: [0, 130, 251],
+          accent: [56, 189, 248],
+          trail: {
+            head: [0, 100, 224],
+            mid: [14, 165, 233],
+            tail: [125, 211, 252],
+          },
+          studio: {
+            bgCenter: [243, 249, 255],
+            bgEdge: [218, 235, 252],
+            haloA: [0, 100, 224],
+            haloB: [56, 189, 248],
+            haloAlpha: 0.17,
+          },
+          fieldMode: "flow",
+          drawMark: drawMetaMark,
+          drawScene: drawMetaScene,
+        },
+        {
+          id: "glm", // 国内编程扎实落地：量子松石翠 + 科技青蓝星尘
+          primary: [17, 24, 39],
+          secondary: [14, 165, 233],
+          accent: [20, 184, 166],
+          trail: {
+            head: [13, 148, 136],
+            mid: [20, 184, 166],
+            tail: [14, 165, 233],
+          },
+          studio: {
+            bgCenter: [244, 249, 250],
+            bgEdge: [220, 234, 238],
+            haloA: [14, 165, 233],
+            haloB: [20, 184, 166],
+            haloAlpha: 0.16,
+          },
+          fieldMode: "circuit",
+          drawMark: drawGlmMark,
+          drawScene: drawGlmScene,
+        },
+      ];
+
+      /* =====================================================================
+         3. 高精度纯矢量官方品牌标识（严格沿用已校验的高还原版本）
+         ===================================================================== */
+
+      function drawGeminiMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        const pulse = 1 + Math.sin(phase * 3.0) * 0.03 * emphasis;
+        ctx.scale(pulse, pulse);
+
+        ctx.beginPath();
+        ctx.moveTo(0, -r);
+        ctx.quadraticCurveTo(0, 0, r, 0);
+        ctx.quadraticCurveTo(0, 0, 0, r);
+        ctx.quadraticCurveTo(0, 0, -r, 0);
+        ctx.quadraticCurveTo(0, 0, 0, -r);
+        ctx.closePath();
+        ctx.clip();
+
+        ctx.fillStyle = "#4285F4";
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+
+        const gTop = ctx.createRadialGradient(-r * 0.08, -r * 0.85, 0, -r * 0.08, -r * 0.85, r * 1.15);
+        gTop.addColorStop(0, "rgba(234, 67, 53, 1)");
+        gTop.addColorStop(0.55, "rgba(234, 67, 53, 0.72)");
+        gTop.addColorStop(1, "rgba(234, 67, 53, 0)");
+        ctx.fillStyle = gTop;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+
+        const gLeft = ctx.createRadialGradient(-r * 0.88, 0, 0, -r * 0.88, 0, r * 1.08);
+        gLeft.addColorStop(0, "rgba(251, 188, 4, 1)");
+        gLeft.addColorStop(0.55, "rgba(251, 188, 4, 0.78)");
+        gLeft.addColorStop(1, "rgba(251, 188, 4, 0)");
+        ctx.fillStyle = gLeft;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+
+        const gBot = ctx.createRadialGradient(-r * 0.08, r * 0.88, 0, -r * 0.08, r * 0.88, r * 1.05);
+        gBot.addColorStop(0, "rgba(52, 168, 83, 1)");
+        gBot.addColorStop(0.55, "rgba(52, 168, 83, 0.72)");
+        gBot.addColorStop(1, "rgba(52, 168, 83, 0)");
+        ctx.fillStyle = gBot;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+
+        const gRight = ctx.createRadialGradient(r * 0.78, 0, 0, r * 0.78, 0, r * 1.05);
+        gRight.addColorStop(0, "rgba(66, 133, 244, 0.98)");
+        gRight.addColorStop(0.65, "rgba(66, 133, 244, 0.5)");
+        gRight.addColorStop(1, "rgba(66, 133, 244, 0)");
+        ctx.fillStyle = gRight;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.restore();
+      }
+
+      function drawOpenAIMark(ctx, r, phase = 0, emphasis = 0, revealPetals = 6) {
+        ctx.save();
+        ctx.rotate(phase * 0.28 * (0.2 + emphasis));
+
+        const c = r * 0.51;
+        const d = r * 0.185;
+        const p = c * 0.5 + d;
+        const lw = Math.max(1.15, r * 0.112);
+
+        const aTangent = (5 * Math.PI) / 6;
+        const aMeet = Math.PI / 6 - Math.acos((c * 0.5) / p);
+        const sqrt3 = Math.sqrt(3);
+        const startX = -d / sqrt3;
+        const startY = d;
+        const tanX = p * Math.cos(aTangent);
+        const tanY = -c + p * Math.sin(aTangent);
+
+        ctx.strokeStyle = "#111827";
+        ctx.lineWidth = lw;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        for (let i = 0; i < 6; i++) {
+          const prog = clamp(revealPetals - i);
+          if (prog <= 0.01) continue;
+          ctx.save();
+          ctx.rotate((i * TAU) / 6);
+          ctx.globalAlpha = prog;
+          ctx.beginPath();
+          const lineP = clamp(prog / 0.42);
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(lerp(startX, tanX, lineP), lerp(startY, tanY, lineP));
+          if (prog > 0.42) {
+            const arcP = (prog - 0.42) / 0.58;
+            const endA = lerp(aTangent, TAU + aMeet, easeOutCubic(arcP));
+            ctx.arc(0, -c, p, aTangent, endA, false);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+        ctx.restore();
+      }
+
+      function drawClaudeMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        ctx.rotate(Math.sin(phase * 1.4) * 0.05 * emphasis);
+        const rays = [
+          { a: -1.57, len: 0.96, w: 0.165 },
+          { a: -1.04, len: 0.90, w: 0.145 },
+          { a: -0.50, len: 0.98, w: 0.16 },
+          { a: 0.04,  len: 0.88, w: 0.145 },
+          { a: 0.56,  len: 0.97, w: 0.165 },
+          { a: 1.09,  len: 0.89, w: 0.145 },
+          { a: 1.62,  len: 0.96, w: 0.16 },
+          { a: 2.15,  len: 0.88, w: 0.145 },
+          { a: 2.68,  len: 0.97, w: 0.165 },
+          { a: 3.22,  len: 0.90, w: 0.145 },
+          { a: 3.74,  len: 0.95, w: 0.16 },
+          { a: 4.26,  len: 0.88, w: 0.145 },
+        ];
+        ctx.strokeStyle = "#D97757";
+        ctx.lineCap = "round";
+        for (const ray of rays) {
+          ctx.lineWidth = Math.max(1.75, r * ray.w);
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(ray.a) * r * 0.12, Math.sin(ray.a) * r * 0.12);
+          ctx.lineTo(Math.cos(ray.a) * r * ray.len, Math.sin(ray.a) * r * ray.len);
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.25, 0, TAU);
+        ctx.fillStyle = "#D97757";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawKimiMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        const box = r * 1.66;
+        const half = box * 0.5;
+        roundedRectPath(ctx, -half, -half, box, box, box * 0.25);
+        ctx.fillStyle = "#090B0E";
+        ctx.fill();
+
+        const s = box / 44;
+        ctx.scale(s, s);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(-10.5, -11.5, 4.3, 23.0);
+
+        ctx.beginPath();
+        ctx.moveTo(-6.5, 0.2);
+        ctx.lineTo(3.6, -11.5);
+        ctx.lineTo(8.8, -11.5);
+        ctx.lineTo(-2.2, 1.2);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(-4.2, -1.6);
+        ctx.lineTo(-0.4, -3.5);
+        ctx.lineTo(9.8, 11.5);
+        ctx.lineTo(4.3, 11.5);
+        ctx.closePath();
+        ctx.fill();
+
+        const dotPulse = 1 + Math.sin(phase * 4.0) * 0.18 * emphasis;
+        ctx.beginPath();
+        ctx.arc(11.6, -11.6, 2.8 * dotPulse, 0, TAU);
+        ctx.fillStyle = "#1677FF";
+        ctx.fill();
+        if (emphasis > 0.1) {
+          ctx.beginPath();
+          ctx.arc(11.6, -11.6, 5.8 * dotPulse, 0, TAU);
+          ctx.fillStyle = `rgba(22, 119, 255, ${0.36 * emphasis})`;
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      function drawDeepSeekMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        const s = r / 26;
+        ctx.scale(s, s);
+        ctx.rotate(Math.sin(phase * 2.1) * 0.04 * emphasis);
+        const blue = "#4D6BFE";
+
+        ctx.beginPath();
+        ctx.moveTo(-21, -2);
+        ctx.bezierCurveTo(-21, -16, -6, -21, 5, -15);
+        ctx.bezierCurveTo(10, -12, 13, -8, 16, -11);
+        ctx.bezierCurveTo(15.5, -15.5, 16.5, -18.5, 19.5, -19.5);
+        ctx.bezierCurveTo(19.5, -15.5, 20.5, -14.2, 22, -13.8);
+        ctx.bezierCurveTo(24.5, -14.5, 26, -15.2, 26.8, -14.2);
+        ctx.bezierCurveTo(26.5, -10.5, 23.5, -7.8, 19.5, -6.5);
+        ctx.bezierCurveTo(18.5, 5, 11.5, 15, 0, 17);
+        ctx.bezierCurveTo(-12.5, 18.5, -21, 10, -21, -2);
+        ctx.closePath();
+        ctx.fillStyle = blue;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(-17.5, -1.5);
+        ctx.bezierCurveTo(-13, -3.5, -6.5, -1.5, -1.5, 4.5);
+        ctx.bezierCurveTo(2.5, 9.2, 7.5, 11.2, 11.8, 10.2);
+        ctx.bezierCurveTo(7.8, 15.2, -0.5, 16.2, -7.8, 13.8);
+        ctx.bezierCurveTo(-14.8, 11.4, -18.5, 5.2, -17.5, -1.5);
+        ctx.closePath();
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(-6.2, 3.2);
+        ctx.bezierCurveTo(-4.8, 9.2, -0.5, 14.5, 6.2, 16.2);
+        ctx.bezierCurveTo(2.8, 12.2, 0.8, 7.8, 0.5, 3.5);
+        ctx.bezierCurveTo(-2.0, 2.2, -4.5, 2.2, -6.2, 3.2);
+        ctx.closePath();
+        ctx.fillStyle = blue;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(-8.5, -7.2, 1.75, 0, TAU);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawQwenMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        ctx.rotate(phase * 0.25 * emphasis);
+        const s = r / 24;
+        ctx.scale(s, s);
+        ctx.fillStyle = "#0A3EFF";
+
+        for (let i = 0; i < 3; i++) {
+          ctx.save();
+          ctx.rotate((i * TAU) / 3);
+          ctx.beginPath();
+          ctx.moveTo(-10.2, -7.8);
+          ctx.lineTo(-4.2, -18.2);
+          ctx.quadraticCurveTo(-2.1, -21.8, 1.8, -19.8);
+          ctx.lineTo(5.8, -17.5);
+          ctx.quadraticCurveTo(8.3, -16.0, 6.9, -13.4);
+          ctx.lineTo(5.6, -11.2);
+          ctx.lineTo(14.8, -11.2);
+          ctx.quadraticCurveTo(18.8, -11.2, 17.8, -7.4);
+          ctx.lineTo(15.8, -3.9);
+          ctx.quadraticCurveTo(14.6, -2.0, 11.6, -2.0);
+          ctx.lineTo(-7.2, -2.0);
+          ctx.quadraticCurveTo(-12.0, -2.0, -10.2, -7.8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      }
+
+      function drawGrokMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        const s = r / 24;
+        ctx.scale(s, s);
+        ctx.fillStyle = "#0B0D12";
+
+        ctx.beginPath();
+        ctx.arc(0, 0, 15.6, Math.PI * 0.78, -Math.PI * 0.18, false);
+        ctx.arc(0, 0, 10.6, -Math.PI * 0.18, Math.PI * 0.78, true);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(0, 0, 15.6, -Math.PI * 0.04, Math.PI * 0.65, false);
+        ctx.arc(0, 0, 10.6, Math.PI * 0.65, -Math.PI * 0.04, true);
+        ctx.closePath();
+        ctx.fill();
+
+        const slashShift = Math.sin(phase * 3.0) * 0.55 * emphasis;
+        ctx.beginPath();
+        ctx.moveTo(-21.5 - slashShift, 21.5 + slashShift);
+        ctx.quadraticCurveTo(-5, 3, 22.5 + slashShift, -22.5 - slashShift);
+        ctx.quadraticCurveTo(3, -1, -13.5, 16.5);
+        ctx.quadraticCurveTo(-16.5, 19.2, -21.5 - slashShift, 21.5 + slashShift);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawMetaMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        const s = r / 24;
+        ctx.scale(s, s);
+        const grad = ctx.createLinearGradient(-22, -10, 22, 12);
+        grad.addColorStop(0, "#0055D4");
+        grad.addColorStop(0.5, "#0078F8");
+        grad.addColorStop(1, "#0064E0");
+
+        ctx.beginPath();
+        ctx.moveTo(0, -1.5);
+        ctx.bezierCurveTo(6.2, -12.8, 12.2, -16.2, 17.2, -11.2);
+        ctx.bezierCurveTo(22.2, -6.2, 22.8, 6.8, 17.6, 12.2);
+        ctx.bezierCurveTo(12.6, 17.2, 6.2, 11.4, 0, 1.5);
+        ctx.bezierCurveTo(-6.2, -8.8, -12.2, -16.2, -17.2, -11.2);
+        ctx.bezierCurveTo(-22.2, -6.2, -22.8, 6.8, -17.6, 12.2);
+        ctx.bezierCurveTo(-12.6, 17.2, -6.2, 11.4, 0, -1.5);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 4.6;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(-4.8, 5.6);
+        ctx.bezierCurveTo(-1.8, 1.8, 1.8, -1.8, 4.8, -5.6);
+        ctx.strokeStyle = "#0082FB";
+        ctx.lineWidth = 4.8;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawGlmMark(ctx, r, phase = 0, emphasis = 0) {
+        ctx.save();
+        const s = r / 22;
+        ctx.scale(s, s);
+        ctx.fillStyle = "#111827";
+
+        ctx.beginPath();
+        ctx.moveTo(-17, -15.5);
+        ctx.lineTo(1.5, -15.5);
+        ctx.lineTo(-2.5, -9.2);
+        ctx.lineTo(-17, -9.2);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(8.5, -15.5);
+        ctx.lineTo(17.5, -15.5);
+        ctx.lineTo(-7.2, 15.5);
+        ctx.lineTo(-16.8, 15.5);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(1.8, 9.2);
+        ctx.lineTo(17, 9.2);
+        ctx.lineTo(17, 15.5);
+        ctx.lineTo(-2.2, 15.5);
+        ctx.closePath();
+        ctx.fill();
+
+        if (emphasis > 0.1) {
+          ctx.beginPath();
+          ctx.arc(3.8, -12.4, 1.9 * emphasis, 0, TAU);
+          ctx.fillStyle = `rgba(14, 165, 233, ${0.92 * emphasis})`;
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      /* =====================================================================
+         4. 九套全新「故事级 · 零文字」微剧场（告别“居中转圈”，每家演一个真实特质）
+         ===================================================================== */
+
+      function drawCardAmbientBg(ctx, w, h, vendor, focus) {
+        const g1 = ctx.createRadialGradient(
+          w * 0.18, h * 0.18, 0,
+          w * 0.18, h * 0.18, Math.max(w, h) * 0.9
+        );
+        g1.addColorStop(0, rgba(vendor.primary, 0.055 + focus * 0.065));
+        g1.addColorStop(0.55, rgba(vendor.secondary, 0.02 + focus * 0.03));
+        g1.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g1;
+        ctx.fillRect(0, 0, w, h);
+
+        const g2 = ctx.createRadialGradient(
+          w * 0.85, h * 0.85, 0,
+          w * 0.85, h * 0.85, Math.max(w, h) * 0.65
+        );
+        g2.addColorStop(0, rgba(vendor.accent, 0.045 + focus * 0.06));
+        g2.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g2;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      // 4.1 Gemini【多模态】—— 跨模态棱镜翻译：
+      //     左侧声波流射入中央四色四角星棱镜 → 经折射实时“显影”为右侧的图像风景画框 + 结构代码行 + 视频帧！
+      function drawGeminiScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const beamIn = smoothstep(0.05, 0.42, show);
+        const refract = smoothstep(0.32, 0.82, show);
+        const vis = 0.45 + focus * 0.55;
+
+        ctx.save();
+        // (1) 左侧：动态音频波形流 → 汇聚射向中央棱镜
+        const waveLeft = w * 0.10;
+        const waveRight = cx - unit * 0.19;
+        ctx.beginPath();
+        const steps = 28;
+        for (let i = 0; i <= steps; i++) {
+          const u = i / steps;
+          const x = lerp(waveLeft, waveRight, u);
+          const env = Math.sin(u * Math.PI) * (1 - u * 0.45);
+          const amp = unit * 0.14 * env * (0.45 + 0.55 * vis);
+          const y = cy + Math.sin(u * 13 - t * 6.5) * amp;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = `rgba(66, 133, 244, ${0.86 * vis})`;
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = "round";
+        ctx.stroke();
+
+        // 声波进入棱镜的聚束脉冲光珠
+        if (focus > 0.06) {
+          const bx = lerp(waveLeft, cx - unit * 0.06, (t * 1.35) % 1);
+          ctx.beginPath();
+          ctx.arc(bx, cy, unit * 0.018, 0, TAU);
+          ctx.fillStyle = `rgba(66, 133, 244, ${0.95 * focus})`;
+          ctx.fill();
+        }
+
+        // (2) 穿过棱镜后向右侧折射展开的三道光谱分束（红/黄/绿，清晰通透）
+        const outX = w * 0.77;
+        const targets = [
+          { y: h * 0.25, col: [234, 67, 53] },  // 图像画框
+          { y: h * 0.50, col: [245, 158, 11] }, // 视频/动态帧（加深琥珀提高白底对比度）
+          { y: h * 0.75, col: [52, 168, 83] },  // 结构化代码
+        ];
+        const raySpread = focus > 0.05 ? refract : 0.65;
+        for (let i = 0; i < targets.length; i++) {
+          const tg = targets[i];
+          const tx = lerp(cx + unit * 0.08, outX - unit * 0.12, raySpread);
+          const ty = lerp(cy, tg.y, raySpread);
+          const lg = ctx.createLinearGradient(cx + unit * 0.05, cy, tx, ty);
+          lg.addColorStop(0, rgba(tg.col, 0.92 * vis));
+          lg.addColorStop(1, rgba(tg.col, 0.44 * vis));
+          ctx.strokeStyle = lg;
+          ctx.lineWidth = 2.3;
+          ctx.beginPath();
+          ctx.moveTo(cx + unit * 0.05, cy);
+          ctx.lineTo(tx, ty);
+          ctx.stroke();
+        }
+
+        // (3) 右侧三种显影模态卡片（图像山水框 + 播放帧 + 结构代码行）
+        const reveal = focus > 0.05 ? easeOutCubic(refract) : 0.72;
+        const boxW = unit * 0.22;
+        const boxH = unit * 0.145;
+
+        // (3a) 右上：抽象图像画框（含太阳圆点与双山折线）
+        ctx.save();
+        ctx.globalAlpha = vis * reveal;
+        const ix = outX - boxW * 0.4;
+        const iy = h * 0.25 - boxH * 0.5;
+        roundedRectPath(ctx, ix, iy, boxW, boxH, 5);
+        ctx.fillStyle = "rgba(234, 67, 53, 0.08)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(234, 67, 53, 0.72)";
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+        // 太阳与山峰剪影
+        ctx.beginPath();
+        ctx.arc(ix + boxW * 0.28, iy + boxH * 0.34, boxH * 0.13, 0, TAU);
+        ctx.fillStyle = "#FBBC04";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(ix + boxW * 0.14, iy + boxH * 0.84);
+        ctx.lineTo(ix + boxW * 0.45, iy + boxH * 0.46);
+        ctx.lineTo(ix + boxW * 0.65, iy + boxH * 0.68);
+        ctx.lineTo(ix + boxW * 0.84, iy + boxH * 0.44);
+        ctx.lineTo(ix + boxW * 0.90, iy + boxH * 0.84);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(234, 67, 53, 0.58)";
+        ctx.fill();
+        ctx.restore();
+
+        // (3b) 右中：动态播放帧（圆角框 + 居中播放三角）
+        ctx.save();
+        ctx.globalAlpha = vis * reveal;
+        const vx = outX - boxW * 0.32;
+        const vy = h * 0.50 - boxH * 0.5;
+        roundedRectPath(ctx, vx, vy, boxW, boxH, 5);
+        ctx.fillStyle = "rgba(251, 188, 4, 0.09)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(234, 168, 4, 0.78)";
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(vx + boxW * 0.42, vy + boxH * 0.28);
+        ctx.lineTo(vx + boxW * 0.66, vy + boxH * 0.50);
+        ctx.lineTo(vx + boxW * 0.42, vy + boxH * 0.72);
+        ctx.closePath();
+        ctx.fillStyle = "#F59E0B";
+        ctx.fill();
+        ctx.restore();
+
+        // (3c) 右下：结构化代码行（绿色阶梯短条）
+        ctx.save();
+        ctx.globalAlpha = vis * reveal;
+        const cxLine = outX - boxW * 0.4;
+        const cyLine = h * 0.75;
+        const lens = [0.85, 0.55, 0.95];
+        ctx.strokeStyle = "#34A853";
+        ctx.lineWidth = 2.1;
+        ctx.lineCap = "round";
+        for (let k = 0; k < 3; k++) {
+          const ly = cyLine + (k - 1) * boxH * 0.34;
+          const indent = k === 1 ? boxW * 0.18 : 0;
+          ctx.beginPath();
+          ctx.moveTo(cxLine + indent, ly);
+          ctx.lineTo(cxLine + indent + boxW * lens[k] * 0.75, ly);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        // 棱镜中心柔光波纹（全羽化无硬边）
+        if (focus > 0.08 && refract > 0.02) {
+          const pr = unit * (0.14 + refract * 0.32);
+          ctx.strokeStyle = `rgba(66, 133, 244, ${(1 - refract) * 0.65 * focus})`;
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.arc(cx, cy, pr, 0, TAU);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        // 中央 Gemini 四色棱镜星芒
+        ctx.save();
+        ctx.translate(cx, cy);
+        drawGeminiMark(ctx, unit * (0.195 + focus * 0.045 + Math.sin(beamIn * Math.PI) * 0.02), t, focus);
+        ctx.restore();
+      }
+
+      // 4.2 OpenAI / GPT【最早从 0 到 1】—— 奇点创世：
+      //     纯白虚无中空心“0”坍缩奇点 → 前半段凌厉绽放完整 6 瓣花环 → 翡翠与墨黑创世射线与光环照亮秩序！
+      function drawOpenAIScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+
+        // 凌厉节奏：0.00~0.20 虚无 0 坍缩，0.18~0.54 完整绽放 6 瓣，0.54~1.00 稳态对称耀动
+        const zeroPhase = focus > 0.08 ? smoothstep(0.0, 0.21, show) : 1;
+        const ignitePhase = focus > 0.08 ? smoothstep(0.18, 0.31, show) : 1;
+        const genesisPhase = focus > 0.08 ? smoothstep(0.20, 0.56, show) : 1;
+        const radiatePhase = focus > 0.08 ? smoothstep(0.24, 0.92, show) : 1;
+
+        ctx.save();
+        if (focus > 0.08 && ignitePhase < 0.98) {
+          const zeroR = unit * lerp(0.24, 0.02, easeInOutCubic(zeroPhase));
+          const zeroA = (1 - ignitePhase) * focus;
+          ctx.strokeStyle = `rgba(17, 24, 39, ${0.8 * zeroA})`;
+          ctx.lineWidth = 2.6;
+          ctx.beginPath();
+          ctx.arc(cx, cy, zeroR, 0, TAU);
+          ctx.stroke();
+        }
+
+        if (genesisPhase > 0.02) {
+          const wave = easeOutCubic(radiatePhase);
+          // 12 道清晰的创世秩序标尺线与外圈光点
+          const rays = 12;
+          for (let i = 0; i < rays; i++) {
+            const a = (i * TAU) / rays + t * 0.08;
+            const r1 = unit * 0.285;
+            const r2 = unit * lerp(0.29, i % 2 === 0 ? 0.45 : 0.39, wave);
+            const alpha = (i % 2 === 0 ? 0.62 : 0.34) * (0.35 + focus * 0.65) * wave;
+            ctx.strokeStyle = i % 2 === 0
+              ? `rgba(16, 163, 127, ${alpha})`
+              : `rgba(17, 24, 39, ${alpha})`;
+            ctx.lineWidth = i % 2 === 0 ? 2.0 : 1.3;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+            ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+            ctx.stroke();
+
+            if (i % 2 === 0 && wave > 0.4) {
+              ctx.beginPath();
+              ctx.arc(cx + Math.cos(a) * (r2 + unit * 0.026), cy + Math.sin(a) * (r2 + unit * 0.026), unit * 0.013, 0, TAU);
+              ctx.fillStyle = `rgba(16, 163, 127, ${0.72 * (0.3 + focus * 0.7) * wave})`;
+              ctx.fill();
+            }
+          }
+
+          // 双层细润同心创世波纹
+          for (let k = 0; k < 2; k++) {
+            const p = (t * 0.48 + k * 0.5) % 1;
+            const rr = unit * (0.26 + p * 0.23);
+            ctx.strokeStyle = k === 0
+              ? `rgba(16, 163, 127, ${(1 - p) * 0.45 * (0.3 + focus * 0.7) * wave})`
+              : `rgba(17, 24, 39, ${(1 - p) * 0.26 * (0.3 + focus * 0.7) * wave})`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.arc(cx, cy, rr, 0, TAU);
+            ctx.stroke();
+          }
+
+          // 创世瞬间爆发光环
+          if (focus > 0.08 && radiatePhase < 0.96) {
+            const burstR = unit * (0.08 + wave * 0.46);
+            const burstA = (1 - wave) * 0.78 * focus;
+            ctx.strokeStyle = `rgba(16, 163, 127, ${burstA})`;
+            ctx.lineWidth = 2.6 * (1 - wave * 0.5);
+            ctx.beginPath();
+            ctx.arc(cx, cy, burstR, 0, TAU);
+            ctx.stroke();
+          }
+
+          // 中心干净的「1」之翡翠光芯（只在绽放完成后轻柔亮起）
+          if (focus > 0.12 && genesisPhase > 0.85) {
+            const spark = smoothstep(0.85, 1, genesisPhase) * focus;
+            ctx.strokeStyle = `rgba(16, 163, 127, ${0.92 * spark})`;
+            ctx.lineWidth = 2.4;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - unit * 0.044);
+            ctx.lineTo(cx, cy + unit * 0.044);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+
+        const petals = focus > 0.08 ? lerp(0.5, 6, easeOutCubic(genesisPhase)) : 6;
+        if (petals > 0.05) {
+          ctx.save();
+          ctx.translate(cx, cy);
+          const scaleIn = focus > 0.08 ? lerp(0.76, 1, easeSpringOut(genesisPhase)) : 1;
+          ctx.scale(scaleIn, scaleIn);
+          drawOpenAIMark(ctx, unit * (0.215 + focus * 0.04), t, focus, petals);
+          ctx.restore();
+        }
+      }
+
+      // 4.3 Claude【目前编程巅峰】—— 精密架构雕塑：
+      //     左侧星芒扫描 → 右侧错乱带故障红点的混乱代码块逐层咬合重构，连出精密依赖树并早早亮起绿色通过校验！
+      function drawClaudeScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const scanP = focus > 0.08 ? smoothstep(0.06, 0.56, show) : 0.85;
+        const passP = focus > 0.08 ? smoothstep(0.50, 0.78, show) : 0.75;
+        const markX = lerp(cx, w * 0.245, focus * 0.94);
+
+        ctx.save();
+        // 抽象精密 IDE 代码结构画布（6 行多级嵌套 + 左侧垂直缩进树 + 故障红点→通过绿点）
+        const rows = [
+          { indent: 0, len: 0.26, err: false, jitterX: -0.04, jitterA: -0.06, hi: true },
+          { indent: 1, len: 0.21, err: true,  jitterX:  0.07, jitterA:  0.09, hi: false },
+          { indent: 2, len: 0.18, err: false, jitterX: -0.05, jitterA:  0.06, hi: true },
+          { indent: 2, len: 0.14, err: true,  jitterX:  0.06, jitterA: -0.08, hi: false },
+          { indent: 1, len: 0.23, err: false, jitterX: -0.03, jitterA:  0.05, hi: false },
+          { indent: 0, len: 0.19, err: false, jitterX:  0.04, jitterA: -0.04, hi: true },
+        ];
+        const baseX = w * 0.455;
+        const startY = cy - unit * 0.23;
+        const gapY = unit * 0.092;
+        const indentStep = unit * 0.055;
+
+        // 左侧垂直架构标尺线与嵌套连接括号
+        if (focus > 0.08) {
+          const lineH = (rows.length - 1) * gapY * scanP;
+          ctx.strokeStyle = `rgba(217, 119, 87, ${0.42 * focus})`;
+          ctx.lineWidth = 1.4;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(baseX - unit * 0.035, startY);
+          ctx.lineTo(baseX - unit * 0.035, startY + lineH);
+          ctx.stroke();
+
+          // 二级缩进垂直引导线
+          if (scanP > 0.35) {
+            const subA = smoothstep(0.35, 0.75, scanP) * focus;
+            ctx.strokeStyle = `rgba(217, 119, 87, ${0.32 * subA})`;
+            ctx.beginPath();
+            ctx.moveTo(baseX + indentStep * 0.55, startY + gapY);
+            ctx.lineTo(baseX + indentStep * 0.55, startY + gapY * 4);
+            ctx.stroke();
+          }
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i];
+          const rowFixed = easeOutCubic(clamp((scanP * 1.25) - i * 0.11));
+          const disorder = (1 - rowFixed) * (focus > 0.08 ? 1 : 0.2);
+          const x = baseX + r.indent * indentStep + r.jitterX * w * disorder;
+          const y = startY + i * gapY;
+          const bw = r.len * w;
+          const bh = Math.max(4.2, unit * 0.034);
+
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(r.jitterA * disorder);
+          roundedRectPath(ctx, 0, -bh * 0.5, bw, bh, bh * 0.5);
+          if (r.err && rowFixed < 0.7) {
+            // 修复前：明显报错微红警告条
+            ctx.fillStyle = `rgba(239, 68, 68, ${0.55 * (1 - rowFixed * 0.6)})`;
+          } else {
+            ctx.fillStyle = r.hi
+              ? `rgba(217, 119, 87, ${0.34 + focus * 0.56})`
+              : `rgba(100, 82, 74, ${0.24 + focus * 0.32})`;
+          }
+          ctx.fill();
+
+          // 右端语法高亮微段（象征精密代码 token）
+          if (rowFixed > 0.5 && focus > 0.1) {
+            roundedRectPath(ctx, bw + unit * 0.025, -bh * 0.5, unit * 0.055, bh, bh * 0.5);
+            ctx.fillStyle = `rgba(217, 119, 87, ${0.26 * rowFixed * focus})`;
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+
+        // 重构完毕：右上角亮起极简绿色校验通过微徽（√）——代表零 Bug 巅峰工程！
+        if (focus > 0.12 && passP > 0.05) {
+          const gx = w * 0.86;
+          const gy = startY - unit * 0.01;
+          const gr = unit * 0.048 * easeSpringOut(passP);
+          ctx.beginPath();
+          ctx.arc(gx, gy, gr, 0, TAU);
+          ctx.fillStyle = `rgba(16, 185, 129, ${0.16 * passP * focus})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(16, 185, 129, ${0.9 * passP * focus})`;
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(gx - gr * 0.42, gy + gr * 0.02);
+          ctx.lineTo(gx - gr * 0.1, gy + gr * 0.34);
+          ctx.lineTo(gx + gr * 0.45, gy - gr * 0.3);
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.stroke();
+        }
+
+        // 左侧温润大师光弧（留足呼吸间隙）
+        if (focus > 0.08) {
+          ctx.strokeStyle = `rgba(217, 119, 87, ${0.44 * focus})`;
+          ctx.lineWidth = 1.8;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.arc(markX, cy, unit * 0.285, -Math.PI * 0.38, Math.PI * 0.38);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(markX, cy);
+        drawClaudeMark(ctx, unit * (0.195 + focus * 0.025), t, focus);
+        ctx.restore();
+      }
+
+      // 4.4 Kimi【国内最智能】—— 高维混沌瞬间洞察捷径（Aha! Insight Distillation）：
+      //     庞大错综的复杂星网中，Kimi 蓝点骤然亮起发出脉冲，跨越重重迷雾瞬间连出一条锋利黄金洞察路径！
+      function drawKimiScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const solveP = focus > 0.08 ? smoothstep(0.14, 0.78, show) : 0.75;
+        const ahaP = focus > 0.08 ? smoothstep(0.62, 0.96, show) : 0.4;
+
+        // 固定确定性高维复杂星座拓扑（左端复杂输入 → 多维隐层 → 右端洞察答案）
+        const nodes = [
+          { x: 0.14, y: 0.24 }, { x: 0.12, y: 0.52 }, { x: 0.16, y: 0.78 },
+          { x: 0.31, y: 0.19 }, { x: 0.28, y: 0.44 }, { x: 0.32, y: 0.74 },
+          { x: 0.68, y: 0.22 }, { x: 0.72, y: 0.56 }, { x: 0.67, y: 0.81 },
+          { x: 0.86, y: 0.26 }, { x: 0.88, y: 0.52 }, { x: 0.84, y: 0.76 },
+        ];
+        // 复杂背景迷雾连线
+        const meshEdges = [
+          [0,3],[0,4],[1,3],[1,4],[1,5],[2,4],[2,5],
+          [3,6],[4,6],[4,7],[5,7],[5,8],
+          [6,9],[6,10],[7,9],[7,10],[7,11],[8,10],[8,11],
+        ];
+        // 跨越维度的最优「顿悟捷径」路径（穿过中央 Kimi 黑方核）
+        const insightPath = [
+          { x: 0.12, y: 0.52 },
+          { x: 0.31, y: 0.19 },
+          { x: 0.50, y: 0.50 },
+          { x: 0.68, y: 0.22 },
+          { x: 0.88, y: 0.52 },
+        ];
+
+        ctx.save();
+        // (1) 背景错综复杂的信息网络（在洞察完成后迅速淡化退居次要）
+        const fogFade = 1 - solveP * 0.55;
+        ctx.strokeStyle = `rgba(15, 23, 42, ${(0.1 + focus * 0.12) * fogFade})`;
+        ctx.lineWidth = 1;
+        for (const [a, b] of meshEdges) {
+          ctx.beginPath();
+          ctx.moveTo(nodes[a].x * w, nodes[a].y * h);
+          ctx.lineTo(nodes[b].x * w, nodes[b].y * h);
+          ctx.stroke();
+        }
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          ctx.beginPath();
+          ctx.arc(n.x * w, n.y * h, unit * 0.013, 0, TAU);
+          ctx.fillStyle = `rgba(100, 116, 139, ${(0.32 + focus * 0.35) * fogFade})`;
+          ctx.fill();
+        }
+
+        // (2) 跨越复杂维度的电光蓝「顿悟最优捷径」闪电般逐段点亮！
+        const totalSegs = insightPath.length - 1;
+        const progSeg = solveP * totalSegs;
+        ctx.strokeStyle = `rgba(22, 119, 255, ${0.42 + focus * 0.55})`;
+        ctx.lineWidth = 2.2 + focus * 0.8;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        for (let s = 0; s < totalSegs; s++) {
+          const segT = clamp(progSeg - s);
+          if (segT <= 0.01) continue;
+          const p0 = insightPath[s];
+          const p1 = insightPath[s + 1];
+          ctx.beginPath();
+          ctx.moveTo(p0.x * w, p0.y * h);
+          ctx.lineTo(lerp(p0.x * w, p1.x * w, segT), lerp(p0.y * h, p1.y * h, segT));
+          ctx.stroke();
+        }
+
+        // 捷径上的高亮智慧节点
+        for (let i = 0; i < insightPath.length; i++) {
+          if (i === 2) continue; // 中央是 Kimi 核
+          const lit = clamp(progSeg - i + 0.5);
+          if (lit <= 0.05) continue;
+          const pt = insightPath[i];
+          const isFinal = i === insightPath.length - 1;
+          ctx.beginPath();
+          ctx.arc(pt.x * w, pt.y * h, unit * (isFinal ? 0.028 : 0.019) * lit, 0, TAU);
+          ctx.fillStyle = "#1677FF";
+          ctx.fill();
+
+          if (isFinal && ahaP > 0.05 && focus > 0.1) {
+            ctx.beginPath();
+            ctx.arc(pt.x * w, pt.y * h, unit * (0.03 + ahaP * 0.095), 0, TAU);
+            ctx.strokeStyle = `rgba(22, 119, 255, ${(1 - ahaP) * 0.85 * focus})`;
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+
+        // 中央 Kimi 黑方核 + 闪耀蓝点
+        ctx.save();
+        ctx.translate(cx, cy);
+        drawKimiMark(ctx, unit * (0.195 + focus * 0.032), t, focus);
+        ctx.restore();
+      }
+
+      // 4.5 DeepSeek【最实惠 / 极致性价比】—— 极小稀疏算力撬动庞大深海能量：
+      //     左侧 4×4 算力网格中只极省地亮起 3 颗微小核心（稀疏激活 MoE） → 经中央蓝鲸放大 → 右侧涌出宏大绵密的深海能量波！
+      function drawDeepSeekScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const activateP = focus > 0.08 ? smoothstep(0.06, 0.45, show) : 0.85;
+        const surgeP = focus > 0.08 ? smoothstep(0.32, 0.92, show) : 0.8;
+        const vis = 0.42 + focus * 0.58;
+
+        ctx.save();
+        // (1) 左侧：极简轻量稀疏算力格阵（16 格只点亮 3 格，一眼表达“极低成本 / 稀疏激活”）
+        const gridX = w * 0.12;
+        const cell = unit * 0.042;
+        const gap = unit * 0.016;
+        const gridSize = 4 * cell + 3 * gap;
+        const gridY = cy - gridSize * 0.5;
+        const activeCells = new Set([2, 5, 11]); // 仅 3 颗微核点亮！
+
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 4; c++) {
+            const idx = r * 4 + c;
+            const isLit = activeCells.has(idx);
+            const px = gridX + c * (cell + gap);
+            const py = gridY + r * (cell + gap);
+            roundedRectPath(ctx, px, py, cell, cell, 3);
+            if (isLit) {
+              ctx.fillStyle = `rgba(77, 107, 254, ${(0.35 + 0.65 * activateP) * vis})`;
+            } else {
+              ctx.fillStyle = `rgba(148, 163, 184, ${0.18 * vis})`;
+            }
+            ctx.fill();
+          }
+        }
+
+        // 纤细精纯的输入能量丝线（从极小稀疏矩阵射入中央蓝鲸）
+        const feedStartX = gridX + gridSize + unit * 0.025;
+        const feedEndX = cx - unit * 0.18;
+        const feedG = ctx.createLinearGradient(feedStartX, cy, feedEndX, cy);
+        feedG.addColorStop(0, `rgba(77, 107, 254, ${0.35 * vis})`);
+        feedG.addColorStop(1, `rgba(77, 107, 254, ${0.9 * vis * activateP})`);
+        ctx.strokeStyle = feedG;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(feedStartX, cy);
+        ctx.lineTo(lerp(feedStartX, feedEndX, activateP), cy);
+        ctx.stroke();
+
+        // (2) 右侧：极低输入撬动出的「宏大深海能量涌浪」（5 道递增宽广、饱满澎湃的蓝青输出波！）
+        const waveOriginX = cx + unit * 0.16;
+        const waveMaxW = w * 0.89 - waveOriginX;
+        const waves = 5;
+        for (let i = 0; i < waves; i++) {
+          const wp = easeOutCubic(clamp((surgeP * 1.35) - i * 0.12));
+          if (wp <= 0.01) continue;
+          const x0 = waveOriginX + (i / (waves - 1)) * waveMaxW * 0.72 * wp;
+          const arcSpan = (0.36 + i * 0.13) * Math.PI * 0.5;
+          const rad = unit * (0.12 + i * 0.072) * wp;
+          const alpha = (0.88 - i * 0.12) * vis * wp;
+
+          ctx.strokeStyle = i % 2 === 0
+            ? `rgba(77, 107, 254, ${alpha})`
+            : `rgba(14, 165, 233, ${alpha})`;
+          ctx.lineWidth = 2.4 + i * 0.35;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.arc(x0 - rad * 0.55, cy, rad, -arcSpan, arcSpan);
+          ctx.stroke();
+        }
+
+        // 右侧澎湃的微光能量颗粒流（呼应“超值大产出”）
+        if (focus > 0.08 && surgeP > 0.15) {
+          for (let k = 0; k < 10; k++) {
+            const p = ((t * 0.95 + k * 0.13) % 1) * surgeP;
+            const px = waveOriginX + p * waveMaxW;
+            const spreadY = (Math.sin(k * 2.7) * 0.36) * h * p;
+            ctx.beginPath();
+            ctx.arc(px, cy + spreadY, unit * (0.012 + (1 - p) * 0.01), 0, TAU);
+            ctx.fillStyle = `rgba(14, 165, 233, ${(1 - p) * 0.85 * focus})`;
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+
+        // 中央 DeepSeek 跃水蓝鲸（能量放大转换核）
+        ctx.save();
+        ctx.translate(cx, cy);
+        drawDeepSeekMark(ctx, unit * (0.195 + focus * 0.032), t, focus);
+        ctx.restore();
+      }
+
+      // 4.6 Qwen【体验均衡】—— 六边形战士能力雷达满格平衡：
+      //     6 个维度从参差不齐的波动状态同步舒展校准，最终完美锁定成饱满对称的正六边形满格轮廓！
+      function drawQwenScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const eqP = focus > 0.08 ? easeInOutCubic(smoothstep(0.10, 0.78, show)) : 0.92;
+        const lockFlash = focus > 0.08 ? smoothstep(0.74, 0.98, show) : 0;
+        const maxR = unit * 0.42;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // (1) 三层极细腻的六边形校准底网 + 6 条能力轴
+        for (let ring = 1; ring <= 3; ring++) {
+          const rr = (maxR * ring) / 3;
+          ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const a = -Math.PI / 2 + (i * TAU) / 6;
+            const px = Math.cos(a) * rr;
+            const py = Math.sin(a) * rr;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.strokeStyle = `rgba(10, 62, 255, ${0.09 + focus * 0.09})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        for (let i = 0; i < 6; i++) {
+          const a = -Math.PI / 2 + (i * TAU) / 6;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a) * maxR, Math.sin(a) * maxR);
+          ctx.strokeStyle = `rgba(10, 62, 255, ${0.08 + focus * 0.08})`;
+          ctx.stroke();
+        }
+
+        // (2) 动态六维能力面：从不均衡波动 [0.58, 0.95, 0.52, 0.92, 0.60, 0.86] → 完美均衡满格 [0.94 × 6]！
+        const uneven = [0.56, 0.92, 0.50, 0.90, 0.58, 0.84];
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const a = -Math.PI / 2 + (i * TAU) / 6;
+          const jitter = Math.sin(t * 5.0 + i * 1.4) * 0.06 * (1 - eqP);
+          const ratio = lerp(uneven[i] + jitter, 0.94, eqP);
+          pts.push({ x: Math.cos(a) * maxR * ratio, y: Math.sin(a) * maxR * ratio });
+        }
+
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          if (i === 0) ctx.moveTo(pts[i].x, pts[i].y);
+          else ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = `rgba(10, 62, 255, ${0.07 + focus * 0.09 + Math.sin(lockFlash * Math.PI) * 0.08})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(10, 62, 255, ${0.46 + focus * 0.48})`;
+        ctx.lineWidth = 1.9;
+        ctx.stroke();
+
+        // 6 颗均匀发亮的满格顶点
+        for (let i = 0; i < 6; i++) {
+          const pt = pts[i];
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, unit * (0.017 + eqP * 0.008 * focus), 0, TAU);
+          ctx.fillStyle = "#0A3EFF";
+          ctx.fill();
+          if (lockFlash > 0.05 && focus > 0.1) {
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, unit * (0.02 + lockFlash * 0.045), 0, TAU);
+            ctx.strokeStyle = `rgba(59, 130, 246, ${(1 - lockFlash) * 0.75 * focus})`;
+            ctx.lineWidth = 1.3;
+            ctx.stroke();
+          }
+        }
+
+        drawQwenMark(ctx, unit * (0.185 + focus * 0.03), t, focus);
+        ctx.restore();
+      }
+
+      // 4.7 Grok【最开放 / 不设限】—— 奇点斜刃破笼而出：
+      //     起手是一座密不透风的封闭栅栏方框 → Grok -45° 凌厉光刃劈过 → 围栏生生斩裂向两侧弹开，自由星尘瞬间奔涌无界！
+      function drawGrokScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const slashP = focus > 0.08 ? smoothstep(0.16, 0.44, show) : 0.75;
+        const breakP = focus > 0.08 ? easeOutCubic(smoothstep(0.32, 0.90, show)) : 0.65;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // (1) 被斩断并向左上/右下两半弹开的封闭围栏框（加粗强化破笼冲击力！）
+        const boxS = unit * 0.34;
+        const split = breakP * unit * 0.145;
+        const cageAlpha = (0.78 - breakP * 0.32) * (0.45 + focus * 0.55);
+
+        ctx.strokeStyle = `rgba(15, 23, 42, ${cageAlpha})`;
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        // 左上半截围栏（受斜刃冲击向左上移位旋转）
+        ctx.save();
+        ctx.translate(-split * 0.82, -split * 0.82);
+        ctx.rotate(-breakP * 0.15);
+        ctx.beginPath();
+        ctx.moveTo(-boxS, boxS * 0.45);
+        ctx.lineTo(-boxS, -boxS);
+        ctx.lineTo(boxS * 0.45, -boxS);
+        ctx.stroke();
+        ctx.restore();
+
+        // 右下半截围栏（受斜刃冲击向右下移位旋转）
+        ctx.save();
+        ctx.translate(split * 0.82, split * 0.82);
+        ctx.rotate(breakP * 0.15);
+        ctx.beginPath();
+        ctx.moveTo(boxS, -boxS * 0.45);
+        ctx.lineTo(boxS, boxS);
+        ctx.lineTo(-boxS * 0.45, boxS);
+        ctx.stroke();
+        ctx.restore();
+
+        // (2) 挣脱束缚后向四面八方自由迸射的脉冲星尘与长轨迹线
+        if (breakP > 0.05) {
+          const sparks = 14;
+          for (let i = 0; i < sparks; i++) {
+            const a = (i / sparks) * TAU + 0.28;
+            const d0 = unit * (0.21 + breakP * (0.17 + (i % 3) * 0.085));
+            const d1 = d0 + unit * (0.065 + (1 - breakP) * 0.075);
+            const sa = (0.45 + focus * 0.55) * (1 - breakP * 0.22);
+            ctx.strokeStyle = i % 3 === 0
+              ? `rgba(14, 165, 233, ${sa})`
+              : `rgba(15, 23, 42, ${sa * 0.85})`;
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * d0, Math.sin(a) * d0);
+            ctx.lineTo(Math.cos(a) * d1, Math.sin(a) * d1);
+            ctx.stroke();
+          }
+        }
+
+        // (3) 贯通 -45° 的锋利奇点斩击光刃
+        if (focus > 0.08 && slashP > 0.02 && breakP < 0.92) {
+          const ext = unit * 0.56 * slashP;
+          const sA = Math.sin(clamp(slashP) * Math.PI) * (1 - breakP * 0.5) * focus;
+          const sg = ctx.createLinearGradient(-ext, ext, ext, -ext);
+          sg.addColorStop(0, "rgba(15,23,42,0)");
+          sg.addColorStop(0.5, `rgba(14,165,233,${0.95 * sA})`);
+          sg.addColorStop(1, "rgba(15,23,42,0)");
+          ctx.strokeStyle = sg;
+          ctx.lineWidth = 2.6;
+          ctx.beginPath();
+          ctx.moveTo(-ext, ext);
+          ctx.lineTo(ext, -ext);
+          ctx.stroke();
+        }
+
+        drawGrokMark(ctx, unit * (0.20 + focus * 0.032), t, focus);
+        ctx.restore();
+      }
+
+      // 4.8 Meta【国外开源】—— 开源权重自由 Fork 裂变生态树：
+      //     从中央蓝色无限环向左右两翼生长出 1 → 2 → 4 → 8 的自主分支裂变树（直观 Git Fork 开源繁衍意象！）
+      function drawMetaScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const gen1 = focus > 0.08 ? smoothstep(0.06, 0.38, show) : 0.9;
+        const gen2 = focus > 0.08 ? smoothstep(0.28, 0.66, show) : 0.8;
+        const gen3 = focus > 0.08 ? smoothstep(0.52, 0.92, show) : 0.65;
+        const vis = 0.42 + focus * 0.58;
+
+        ctx.save();
+        // 左右对称展开开源 Fork 分支树（dir = -1 向左，dir = +1 向右）
+        for (const dir of [-1, 1]) {
+          const rootX = cx + dir * unit * 0.21;
+          const rootY = cy;
+
+          // 第 1 代 Fork（1 → 2）
+          const lvl1 = [
+            { x: cx + dir * w * 0.25, y: cy - h * 0.18 },
+            { x: cx + dir * w * 0.25, y: cy + h * 0.18 },
+          ];
+          for (let i = 0; i < lvl1.length; i++) {
+            const p = lvl1[i];
+            const px = lerp(rootX, p.x, gen1);
+            const py = lerp(rootY, p.y, gen1);
+            ctx.strokeStyle = `rgba(0, 100, 224, ${0.72 * vis})`;
+            ctx.lineWidth = 1.7;
+            ctx.beginPath();
+            ctx.moveTo(rootX, rootY);
+            ctx.quadraticCurveTo((rootX + px) * 0.5, py, px, py);
+            ctx.stroke();
+
+            if (gen1 > 0.3) {
+              ctx.beginPath();
+              ctx.arc(px, py, unit * 0.019, 0, TAU);
+              ctx.fillStyle = "#0064E0";
+              ctx.fill();
+            }
+
+            // 第 2 代 Fork（2 → 4）
+            if (gen2 > 0.02) {
+              const offsets = [-0.14, 0.14];
+              for (const oy of offsets) {
+                const p2x = cx + dir * w * 0.39;
+                const p2y = p.y + oy * h;
+                const c2x = lerp(p.x, p2x, gen2);
+                const c2y = lerp(p.y, p2y, gen2);
+                ctx.strokeStyle = `rgba(0, 130, 251, ${0.55 * vis * gen2})`;
+                ctx.lineWidth = 1.3;
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.quadraticCurveTo((p.x + c2x) * 0.5, c2y, c2x, c2y);
+                ctx.stroke();
+
+                if (gen2 > 0.45) {
+                  ctx.beginPath();
+                  ctx.arc(c2x, c2y, unit * 0.015, 0, TAU);
+                  ctx.fillStyle = "#0EA5E9";
+                  ctx.fill();
+                }
+
+                // 第 3 代远端社区回连波纹
+                if (gen3 > 0.1 && focus > 0.1) {
+                  ctx.beginPath();
+                  ctx.arc(p2x, p2y, unit * (0.016 + gen3 * 0.032), 0, TAU);
+                  ctx.strokeStyle = `rgba(56, 189, 248, ${(1 - gen3) * 0.72 * focus})`;
+                  ctx.lineWidth = 1.2;
+                  ctx.stroke();
+                }
+              }
+            }
+          }
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        drawMetaMark(ctx, unit * (0.205 + focus * 0.032), t, focus);
+        ctx.restore();
+      }
+
+      // 4.9 智谱 GLM【国内编程扎实落地】—— 工程编译流水线 + 终端工具落地：
+      //     左侧高速输入终端命令行 `>_` → 穿过中央纯黑 Z 切缝引擎 → 右侧逐块拼装出严密工程模块矩阵并打上绿色运行通过光！
+      function drawGlmScene(ctx, w, h, t, focus, show) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        const unit = Math.min(w, h);
+        const typeP = focus > 0.08 ? smoothstep(0.05, 0.55, show) : 0.8;
+        const buildP = focus > 0.08 ? smoothstep(0.32, 0.92, show) : 0.85;
+        const vis = 0.42 + focus * 0.58;
+
+        ctx.save();
+        // (1) 左侧：微缩极简终端窗口（无字命令行光标 `>_` + 流式输入指令条）
+        const termX = w * 0.095;
+        const termW = w * 0.255;
+        const termH = h * 0.44;
+        const termY = cy - termH * 0.5;
+        roundedRectPath(ctx, termX, termY, termW, termH, 7);
+        ctx.fillStyle = `rgba(15, 23, 42, ${0.045 + focus * 0.04})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(15, 23, 42, ${0.22 * vis})`;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        // 终端提示符 `>` 几何折线
+        const px0 = termX + termW * 0.14;
+        const py0 = termY + termH * 0.28;
+        ctx.strokeStyle = `rgba(14, 165, 233, ${0.9 * vis})`;
+        ctx.lineWidth = 1.8;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(px0, py0 - 4);
+        ctx.lineTo(px0 + 5, py0);
+        ctx.lineTo(px0, py0 + 4);
+        ctx.stroke();
+
+        // 逐行打字推进的指令条
+        const cmdLens = [0.46, 0.62, 0.38];
+        for (let i = 0; i < 3; i++) {
+          const lp = clamp(typeP * 2.2 - i * 0.45);
+          if (lp <= 0.01) continue;
+          const ly = py0 + i * (termH * 0.22);
+          const lx = i === 0 ? px0 + 10 : px0;
+          ctx.strokeStyle = i === 0
+            ? `rgba(15, 23, 42, ${0.72 * vis})`
+            : `rgba(14, 165, 233, ${0.62 * vis})`;
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+          ctx.moveTo(lx, ly);
+          ctx.lineTo(lx + termW * cmdLens[i] * lp, ly);
+          ctx.stroke();
+        }
+
+        // (2) 穿梭中央 Z 切缝引擎的高速数据管道
+        const pipeY = cy;
+        ctx.strokeStyle = `rgba(14, 165, 233, ${0.38 * vis})`;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(termX + termW + 4, pipeY);
+        ctx.lineTo(w * 0.65, pipeY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (focus > 0.08) {
+          const pulseX = lerp(termX + termW + 4, w * 0.65, (t * 1.45) % 1);
+          ctx.beginPath();
+          ctx.arc(pulseX, pipeY, 2.8, 0, TAU);
+          ctx.fillStyle = "#0EA5E9";
+          ctx.fill();
+        }
+
+        // (3) 右侧：逐块拼装落地的 3×2 工程模块积木网格（编译完成依次变青翠就绪！）
+        const modX = w * 0.665;
+        const modCellW = w * 0.098;
+        const modCellH = h * 0.115;
+        const modGap = 6;
+        const modTotalH = 3 * modCellH + 2 * modGap;
+        const modStartY = cy - modTotalH * 0.5;
+
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 2; c++) {
+            const idx = r * 2 + c;
+            const mp = easeSpringOut(clamp(buildP * 2.1 - idx * 0.18));
+            if (mp <= 0.01) continue;
+            const bx = modX + c * (modCellW + modGap);
+            const by = modStartY + r * (modCellH + modGap);
+            ctx.save();
+            ctx.translate(bx + modCellW * 0.5, by + modCellH * 0.5);
+            ctx.scale(mp, mp);
+            roundedRectPath(ctx, -modCellW * 0.5, -modCellH * 0.5, modCellW, modCellH, 4.5);
+            const isReady = mp > 0.72;
+            ctx.fillStyle = isReady
+              ? `rgba(20, 184, 166, ${(0.18 + focus * 0.16) * vis})`
+              : `rgba(14, 165, 233, ${0.14 * vis})`;
+            ctx.fill();
+            ctx.strokeStyle = isReady
+              ? `rgba(20, 184, 166, ${0.82 * vis})`
+              : `rgba(14, 165, 233, ${0.65 * vis})`;
+            ctx.lineWidth = 1.3;
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+        ctx.restore();
+
+        // 中央智谱纯黑几何 Z 引擎核
+        ctx.save();
+        ctx.translate(cx, cy);
+        drawGlmMark(ctx, unit * (0.18 + focus * 0.03), t, focus);
+        ctx.restore();
+      }
+
+      /* =====================================================================
+         5. 电影级时间轴编排（给每套微剧场充裕的“起承转合”展示节奏）
+         ===================================================================== */
+      const COUNT = VENDORS.length; // 9
+      const ACT1_END = 2.55;        // 顺序接力成环
+      const SLOT_DUR = 1.68;        // 每家完整特写节奏（弹簧推进 + 故事演绎 + 丝滑交接）
+      const ACT2_END = ACT1_END + COUNT * SLOT_DUR; // 17.67s
+      const REFORM_END = ACT2_END + 0.90;           // 18.57s：9 家齐聚满环并光谱连结
+      const CONVERGE_END = REFORM_END + 1.30;       // 19.87s：9 道阿基米德螺线彗尾向心坍缩
+      const BLOOM_END = CONVERGE_END + 1.05;        // 20.92s：绽放中心呼吸光舱 + 倾斜粒子星环 + 9 徽章
+
+      /* =====================================================================
+         6. DOM 初始化（卡片 Canvas 一次性按特写高分辨率分配，彻底杜绝闪烁）
+         ===================================================================== */
+      const stageEl = document.getElementById("stage");
+      const fieldCanvas = document.getElementById("field-canvas");
+      const fieldCtx = fieldCanvas.getContext("2d");
+      const cardsLayer = document.getElementById("cards-layer");
+      const finaleCoreEl = document.getElementById("finale-core");
+      const coreCanvas = document.getElementById("core-canvas");
+      const coreCtx = coreCanvas.getContext("2d");
+      const badgesLayer = document.getElementById("orbit-badges");
+      const dockDotsEl = document.getElementById("dock-dots");
+
+      const CARD_BUFFER_W = 460;
+      const CARD_BUFFER_H = 294;
+
+      const cardNodes = VENDORS.map((vendor, index) => {
+        const el = document.createElement("div");
+        el.className = "vendor-card";
+        el.dataset.vendor = vendor.id;
+
+        const cv = document.createElement("canvas");
+        const initDpr = Math.min(window.devicePixelRatio || 1, 2);
+        cv.width = Math.round(CARD_BUFFER_W * initDpr);
+        cv.height = Math.round(CARD_BUFFER_H * initDpr);
+
+        const sheen = document.createElement("div");
+        sheen.className = "card-sheen";
+
+        el.appendChild(cv);
+        el.appendChild(sheen);
+        cardsLayer.appendChild(el);
+
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          jumpToVendor(index);
+        });
+
+        return {
+          index,
+          vendor,
+          el,
+          sheen,
+          canvas: cv,
+          ctx: cv.getContext("2d"),
+          screenX: 0,
+          screenY: 0,
+          prevX: null,
+          prevY: null,
+          velX: 0,
+          velY: 0,
+          scale: 1,
+          opacity: 0,
+          z: 0,
+          focus: 0,
+          depthNorm: 0.5,
+        };
+      });
+
+      const badgeNodes = VENDORS.map((vendor, index) => {
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "orbit-badge";
+        el.setAttribute("aria-label", vendor.id);
+        const cv = document.createElement("canvas");
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        cv.width = Math.round(28 * dpr);
+        cv.height = Math.round(28 * dpr);
+        const c = cv.getContext("2d");
+        c.scale(dpr, dpr);
+        c.translate(14, 14);
+        vendor.drawMark(c, 11.4, 0, 0);
+        el.appendChild(cv);
+        badgesLayer.appendChild(el);
+
+        // 悬停状态用于增强该行星的微引力场与尾迹光晕
+        el.addEventListener("pointerenter", () => { hoveredBadgeIdx = index; });
+        el.addEventListener("pointerleave", () => {
+          if (hoveredBadgeIdx === index) hoveredBadgeIdx = -1;
+        });
+
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          inspectVendorInFinale(index);
+        });
+        return { index, vendor, el };
+      });
+
+      const dotButtons = VENDORS.map((vendor, index) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "dock-dot";
+        btn.title = vendor.id;
+        btn.addEventListener("click", () => jumpToVendor(index));
+        dockDotsEl.appendChild(btn);
+        return btn;
+      });
+
+      /* =====================================================================
+         7. 底层光学粒子场（与智启 Agent WelcomeParticleField 视觉同源）
+         ===================================================================== */
+      const PARTICLES = (() => {
+        const cols = 48;
+        const rows = 25;
+        const list = [];
+        for (let i = 0; i < cols * rows; i++) {
+          list.push({
+            x: (((i % cols) + Math.random()) / cols - 0.5) * 2.55,
+            y: ((Math.floor(i / cols) + Math.random()) / rows - 0.5) * 2.7,
+            seed: Math.random(),
+            phase: Math.random() * TAU,
+          });
+        }
+        return list;
+      })();
+
+      function arcLight(angle, center, width) {
+        const d = Math.abs(angle - center);
+        const off = Math.min(d, TAU - d);
+        return Math.exp(-((off / width) ** 2));
+      }
+
+      /* =====================================================================
+         8. 播放控制、鼠标微视差、终态星环拖拽/滚轮拨动
+         ===================================================================== */
+      const SPEEDS = [0.7, 1.0, 1.4];
+      let speedIdx = 1;
+      let playing = true;
+      let timeline = 0;
+      let ambientTime = 0;
+      let inspectTarget = null;
+      let pointer = { x: 0, y: 0 };
+      let follow = { x: 0, y: 0 };
+
+      // 终态可拖拽/滚轮拨动的角动量与悬停状态
+      let userOrbitOffset = 0;
+      let userOrbitVel = 0;
+      let hoveredBadgeIdx = -1;
+      let isDragging = false;
+      let lastDragX = 0;
+
+      // 预先为每颗行星生成确定性微尘偏移（确保星尘彗尾细腻自然、无随机闪跳）
+      const TRAIL_MOTES = Array.from({ length: 16 }, (_, idx) => {
+        const u = (idx + 0.5) / 16;
+        const hash1 = Math.sin(idx * 12.9898 + 4.1414) * 43758.5453;
+        const hash2 = Math.sin(idx * 78.233 + 1.732) * 28461.1234;
+        const r1 = hash1 - Math.floor(hash1);
+        const r2 = hash2 - Math.floor(hash2);
+        return {
+          u, // 沿尾迹从头(0)到尾(1)的位置
+          spread: (r1 - 0.5) * 2, // 垂直于轨道的自然扩散偏移
+          phase: r2 * TAU,
+          size: 0.72 + r1 * 0.78,
+        };
+      });
+
+      function sampleTrailColor(trail, u) {
+        const k = clamp(u);
+        if (trail.spectrum && trail.spectrum.length >= 2) {
+          const scaled = k * (trail.spectrum.length - 1);
+          const idx = Math.min(trail.spectrum.length - 2, Math.floor(scaled));
+          return mixRgb(trail.spectrum[idx], trail.spectrum[idx + 1], scaled - idx);
+        }
+        return k < 0.5
+          ? mixRgb(trail.head, trail.mid, k * 2)
+          : mixRgb(trail.mid, trail.tail, (k - 0.5) * 2);
+      }
+
+      // 平滑动态影棚色温状态
+      let curBgCenter = [...DEFAULT_STUDIO.bgCenter];
+      let curBgEdge = [...DEFAULT_STUDIO.bgEdge];
+      let curHaloA = [...DEFAULT_STUDIO.haloA];
+      let curHaloB = [...DEFAULT_STUDIO.haloB];
+      let curHaloAlpha = DEFAULT_STUDIO.haloAlpha;
+      let curTint = [124, 58, 237];
+      let curAccent = [216, 55, 126];
+
+      const btnPlay = document.getElementById("btn-play");
+      const iconPause = document.getElementById("icon-pause");
+      const iconPlay = document.getElementById("icon-play");
+      const btnReplay = document.getElementById("btn-replay");
+      const btnSpeed = document.getElementById("btn-speed");
+      const speedBars = document.getElementById("speed-bars");
+      const btnEnd = document.getElementById("btn-end");
+
+      function syncPlayIcon() {
+        iconPause.style.display = playing ? "block" : "none";
+        iconPlay.style.display = playing ? "none" : "block";
+      }
+
+      function jumpToVendor(index) {
+        inspectTarget = null;
+        timeline = ACT1_END + index * SLOT_DUR + 0.32;
+        playing = true;
+        syncPlayIcon();
+      }
+
+      function inspectVendorInFinale(index) {
+        if (inspectTarget && inspectTarget.index === index) {
+          inspectTarget = null;
+          return;
+        }
+        inspectTarget = { index, startedAt: ambientTime };
+      }
+
+      btnPlay.addEventListener("click", () => {
+        if (timeline >= BLOOM_END && !playing) {
+          timeline = 0;
+          inspectTarget = null;
+        }
+        playing = !playing;
+        syncPlayIcon();
+      });
+
+      btnReplay.addEventListener("click", () => {
+        timeline = 0;
+        inspectTarget = null;
+        userOrbitOffset = 0;
+        userOrbitVel = 0;
+        playing = true;
+        syncPlayIcon();
+      });
+
+      btnSpeed.addEventListener("click", () => {
+        speedIdx = (speedIdx + 1) % SPEEDS.length;
+        speedBars.dataset.level = String(speedIdx + 1);
+      });
+
+      btnEnd.addEventListener("click", () => {
+        inspectTarget = null;
+        timeline = BLOOM_END + 0.08;
+        playing = true;
+        syncPlayIcon();
+      });
+
+      // 终态拖拽 & 滚轮拨动 3D 徽章星环
+      stageEl.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("#dock") || e.target.closest(".orbit-badge") || e.target.closest(".vendor-card")) return;
+        if (inspectTarget) {
+          inspectTarget = null;
+          return;
+        }
+        if (timeline >= CONVERGE_END) {
+          isDragging = true;
+          lastDragX = e.clientX;
+          stageEl.classList.add("is-dragging");
+        }
+      });
+
+      window.addEventListener("pointermove", (e) => {
+        pointer.x = (e.clientX / Math.max(window.innerWidth, 1) - 0.5) * 2;
+        pointer.y = (e.clientY / Math.max(window.innerHeight, 1) - 0.5) * 2;
+        if (isDragging) {
+          const dx = e.clientX - lastDragX;
+          lastDragX = e.clientX;
+          userOrbitOffset += dx * 0.0052;
+          userOrbitVel = dx * 0.24;
+        }
+      }, { passive: true });
+
+      window.addEventListener("pointerup", () => {
+        if (isDragging) {
+          isDragging = false;
+          stageEl.classList.remove("is-dragging");
+        }
+      });
+
+      window.addEventListener("wheel", (e) => {
+        if (timeline >= CONVERGE_END && !inspectTarget) {
+          const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+          userOrbitVel += delta * 0.0032;
+        }
+      }, { passive: true });
+
+      window.addEventListener("pointerleave", () => {
+        pointer.x = 0;
+        pointer.y = 0;
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          playing = !playing;
+          syncPlayIcon();
+        } else if (e.key === "r" || e.key === "R") {
+          timeline = 0;
+          inspectTarget = null;
+          playing = true;
+          syncPlayIcon();
+        } else if (e.key === "Escape") {
+          if (inspectTarget) inspectTarget = null;
+          else timeline = BLOOM_END + 0.08;
+        }
+      });
+
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has("t")) {
+        const parsed = parseFloat(urlParams.get("t"));
+        if (!Number.isNaN(parsed)) timeline = Math.max(0, parsed);
+      }
+      if (urlParams.get("pause") === "1") {
+        playing = false;
+        syncPlayIcon();
+      }
+
+      /* =====================================================================
+         9. 全局时间轴与相机镜头语言（动态焦距 + 弹簧焦点包络）
+         ===================================================================== */
+      function computeChoreography(T) {
+        const assembleP = clamp(T / ACT1_END);
+        const reformP = smoothstep(ACT2_END, REFORM_END, T);
+        const convergeP = smoothstep(REFORM_END, CONVERGE_END, T);
+        const bloomP = smoothstep(CONVERGE_END, BLOOM_END, T);
+        const finaleP = smoothstep(CONVERGE_END + 0.2, BLOOM_END + 0.3, T);
+
+        const baseStepAngle = TAU / COUNT;
+        let ringYaw = Math.PI / 2;
+        let activeIndex = -1;
+        let activeSlotT = 0;
+        let activeFocusStrength = 0;
+        let activeSpringBoost = 0;
+
+        if (T < ACT1_END) {
+          const spin = easeInOutCubic(assembleP);
+          ringYaw = Math.PI / 2 - 0.42 + spin * 0.42;
+        } else if (T < ACT2_END) {
+          const elapsed = T - ACT1_END;
+          const slotIdx = Math.min(COUNT - 1, Math.floor(elapsed / SLOT_DUR));
+          const local = (elapsed - slotIdx * SLOT_DUR) / SLOT_DUR;
+          activeIndex = slotIdx;
+          activeSlotT = local;
+
+          const prevYaw = Math.PI / 2 - Math.max(0, slotIdx - 1) * baseStepAngle;
+          const targetYaw = Math.PI / 2 - slotIdx * baseStepAngle;
+          const turnT = slotIdx === 0 ? 1 : easeInOutQuart(clamp(local / 0.25));
+          ringYaw = lerp(prevYaw, targetYaw, turnT);
+
+          // 弹簧物理推进 + 利落归轨
+          const enterLinear = clamp(local / 0.23);
+          const enterSpring = easeSpringOut(enterLinear);
+          const exit = 1 - easeInOutCubic(clamp((local - 0.80) / 0.20));
+          activeFocusStrength = clamp(Math.min(enterSpring, exit), 0, 1.045);
+          activeSpringBoost = Math.max(0, enterSpring - 1);
+        } else {
+          const endBaseYaw = Math.PI / 2 - (COUNT - 1) * baseStepAngle;
+          const reformSpin = reformP * 0.85;
+          const vortexSpin = Math.pow(convergeP, 1.75) * 4.8;
+          const idleSpin = Math.max(0, T - CONVERGE_END) * 0.14;
+          ringYaw = endBaseYaw - reformSpin - vortexSpin - idleSpin;
+        }
+
+        let finaleInspectIndex = -1;
+        let finaleInspectFocus = 0;
+        let finaleInspectShow = 0;
+        if (inspectTarget && T >= CONVERGE_END) {
+          finaleInspectIndex = inspectTarget.index;
+          const dt = ambientTime - inspectTarget.startedAt;
+          finaleInspectFocus = clamp(easeSpringOut(clamp(dt / 0.48)), 0, 1.04);
+          finaleInspectShow = clamp((dt - 0.08) / 1.55);
+        }
+
+        const rollTilt =
+          T < ACT1_END
+            ? lerp(-0.24, -0.17, easeInOutCubic(assembleP))
+            : T < ACT2_END
+            ? lerp(-0.17, -0.09, clamp(activeFocusStrength))
+            : lerp(-0.17, -0.16, Math.max(reformP, convergeP));
+
+        const pitchTilt =
+          T < ACT1_END
+            ? lerp(0.36, 0.50, easeInOutCubic(assembleP))
+            : T < ACT2_END
+            ? lerp(0.50, 0.40, clamp(activeFocusStrength))
+            : lerp(0.50, 0.55, convergeP);
+
+        // 相机动态焦距呼吸：特写推进时拉近焦距制造长焦景深压缩感！
+        const anyFocus = Math.max(clamp(activeFocusStrength), clamp(finaleInspectFocus));
+        const dynamicFov = lerp(1360, 960, anyFocus);
+
+        return {
+          assembleP,
+          reformP,
+          convergeP,
+          bloomP,
+          finaleP,
+          ringYaw,
+          activeIndex,
+          activeSlotT,
+          activeFocusStrength,
+          activeSpringBoost,
+          finaleInspectIndex,
+          finaleInspectFocus,
+          finaleInspectShow,
+          rollTilt,
+          pitchTilt,
+          dynamicFov,
+          anyFocus,
+        };
+      }
+
+      /* =====================================================================
+         10. 主渲染循环
+         ===================================================================== */
+      let width = window.innerWidth;
+      let height = window.innerHeight;
+      let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        fieldCanvas.width = Math.max(1, Math.round(width * dpr));
+        fieldCanvas.height = Math.max(1, Math.round(height * dpr));
+        fieldCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        // 同步终场中心光舱 Canvas 高清尺寸
+        const cw = Math.min(520, Math.round(width * 0.76));
+        const chH = 98;
+        coreCanvas.width = Math.max(1, Math.round(cw * dpr));
+        coreCanvas.height = Math.max(1, Math.round(chH * dpr));
+        coreCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      resize();
+      window.addEventListener("resize", resize);
+
+      let lastTimestamp = 0;
+
+      function render(now) {
+        const dtMs = lastTimestamp ? Math.min(now - lastTimestamp, 45) : 16.67;
+        lastTimestamp = now;
+        const dt = dtMs / 1000;
+
+        ambientTime += dt;
+        if (playing) {
+          timeline += dt * SPEEDS[speedIdx];
+        }
+
+        // 终态拖拽/滚轮角动量阻尼衰减
+        if (!isDragging) {
+          userOrbitOffset += userOrbitVel * dt;
+          userOrbitVel *= Math.exp(-dt * 4.2);
+          if (Math.abs(userOrbitVel) < 0.001) userOrbitVel = 0;
+        }
+        stageEl.classList.toggle("is-draggable", timeline >= CONVERGE_END && !inspectTarget);
+
+        const easeFollow = 1 - Math.exp(-dt * 6.5);
+        follow.x += (pointer.x - follow.x) * easeFollow;
+        follow.y += (pointer.y - follow.y) * easeFollow;
+
+        const ch = computeChoreography(timeline);
+        const cx = width * 0.5;
+        const cy = height * 0.465;
+        const ringRadius = Math.min(width * 0.355, height * 0.375, 405);
+        const cardW = Math.round(clamp(ringRadius * 0.44, 128, 174));
+        const cardH = Math.round(cardW * 0.64);
+
+        // 同步相机透视纵深呼吸
+        cardsLayer.style.perspective = `${Math.round(ch.dynamicFov)}px`;
+
+        // 动态平滑切换整块影棚的色温氛围灯光！
+        const spotlightVendorIdx =
+          ch.finaleInspectIndex >= 0
+            ? ch.finaleInspectIndex
+            : ch.activeFocusStrength > 0.08
+            ? ch.activeIndex
+            : -1;
+
+        const targetStudio = spotlightVendorIdx >= 0 ? VENDORS[spotlightVendorIdx].studio : DEFAULT_STUDIO;
+        const targetTint = spotlightVendorIdx >= 0 ? VENDORS[spotlightVendorIdx].primary : [124, 58, 237];
+        const targetAccent = spotlightVendorIdx >= 0 ? VENDORS[spotlightVendorIdx].accent : [216, 55, 126];
+
+        const gradeSpeed = 1 - Math.exp(-dt * 4.8);
+        curBgCenter = mixRgb(curBgCenter, targetStudio.bgCenter, gradeSpeed);
+        curBgEdge = mixRgb(curBgEdge, targetStudio.bgEdge, gradeSpeed);
+        curHaloA = mixRgb(curHaloA, targetStudio.haloA, gradeSpeed);
+        curHaloB = mixRgb(curHaloB, targetStudio.haloB, gradeSpeed);
+        curHaloAlpha = lerp(curHaloAlpha, targetStudio.haloAlpha, gradeSpeed);
+        curTint = mixRgb(curTint, targetTint, gradeSpeed);
+        curAccent = mixRgb(curAccent, targetAccent, gradeSpeed);
+
+        for (let i = 0; i < COUNT; i++) {
+          const isAct = i === spotlightVendorIdx;
+          dotButtons[i].classList.toggle("is-active", isAct);
+          dotButtons[i].style.backgroundColor = isAct
+            ? rgba(VENDORS[i].primary, 0.94)
+            : "rgba(15, 23, 42, 0.26)";
+        }
+
+        const cosRoll = Math.cos(ch.rollTilt);
+        const sinRoll = Math.sin(ch.rollTilt);
+        const cosPitch = Math.cos(ch.pitchTilt);
+        const sinPitch = Math.sin(ch.pitchTilt);
+        const fov = ch.dynamicFov;
+        const baseStep = TAU / COUNT;
+
+        for (let i = 0; i < COUNT; i++) {
+          const node = cardNodes[i];
+
+          let appear = 1;
+          let fanRatio = 1;
+          if (timeline < ACT1_END) {
+            if (i === 0) {
+              appear = easeOutCubic(clamp(timeline / 0.48));
+              fanRatio = easeInOutCubic(clamp((timeline - 0.28) / 0.98));
+            } else {
+              const startT = 0.22 + (i - 1) * 0.155;
+              const localA = clamp((timeline - startT) / 0.95);
+              appear = easeOutCubic(clamp((timeline - startT) / 0.36));
+              fanRatio = easeOutQuint(localA);
+            }
+          }
+
+          const targetSlotAngle = i * baseStep;
+          const slotAngle = targetSlotAngle - (1 - fanRatio) * 0.36;
+          const worldAngle = ch.ringYaw + slotAngle;
+
+          const openRadiusScale =
+            i === 0 && timeline < ACT1_END
+              ? lerp(0.18, 1, easeInOutCubic(clamp((timeline - 0.28) / 0.9)))
+              : lerp(0.76, 1, fanRatio);
+
+          const collapseScale = 1 - easeInOutQuart(ch.convergeP);
+          // 特写期间非主角卡片向外微扩退让，增加舞台呼吸与长焦纵深
+          const otherFocusAmt = Math.max(
+            i !== ch.activeIndex ? clamp(ch.activeFocusStrength) : 0,
+            i !== ch.finaleInspectIndex ? clamp(ch.finaleInspectFocus) : 0
+          );
+          const bgSpread = 1 + otherFocusAmt * 0.17;
+          const rNow = ringRadius * openRadiusScale * collapseScale * bgSpread;
+
+          const ox = Math.cos(worldAngle) * rNow;
+          const oz = Math.sin(worldAngle) * rNow;
+          const bob = Math.sin(ambientTime * 1.45 + i * 0.85) * 4.0 * (1 - ch.convergeP);
+
+          const py1 = bob * cosPitch + oz * sinPitch;
+          const pz1 = -bob * sinPitch + oz * cosPitch;
+          const px2 = ox * cosRoll - py1 * sinRoll;
+          const py2 = ox * sinRoll + py1 * cosRoll;
+
+          const parallaxX = follow.x * 16 * (1 + pz1 / 540);
+          const parallaxY = follow.y * 10 * (1 + pz1 / 540);
+
+          const persp = fov / (fov - pz1);
+          const orbitScreenX = cx + px2 * persp + parallaxX;
+          const orbitScreenY = cy + py2 * persp + parallaxY;
+          const depthNorm = clamp((pz1 + ringRadius) / (2 * ringRadius));
+          const orbitScale = persp * lerp(0.84, 1.05, depthNorm);
+
+          const orbitRotY = -Math.cos(worldAngle) * 30 * (1 - ch.convergeP);
+          const orbitRotX = 8.5 * (1 - ch.convergeP);
+          const orbitRotZ = ((ch.rollTilt * 180) / Math.PI) * 0.42;
+
+          let focusRaw = 0;
+          let showcaseT = 0;
+          if (i === ch.activeIndex && ch.activeFocusStrength > 0) {
+            focusRaw = ch.activeFocusStrength;
+            showcaseT = ch.activeSlotT;
+          } else if (i === ch.finaleInspectIndex && ch.finaleInspectFocus > 0) {
+            focusRaw = ch.finaleInspectFocus;
+            showcaseT = ch.finaleInspectShow;
+          }
+          const focus = clamp(focusRaw);
+
+          const focusTargetX = cx + follow.x * 10;
+          const focusTargetY = cy - 4 + follow.y * 8;
+          const focusTargetScale = Math.min((width * 0.58) / cardW, (height * 0.48) / cardH, 2.26);
+
+          const x = lerp(orbitScreenX, focusTargetX, focusRaw);
+          const y = lerp(orbitScreenY, focusTargetY, focusRaw);
+          const scale = lerp(
+            orbitScale * (0.45 + 0.55 * appear) * (1 - ch.convergeP * 0.86),
+            focusTargetScale,
+            focusRaw
+          );
+
+          // 计算实时位移速度 → 注入细腻的物理惯性微倾（Velocity-driven Tilt）！
+          if (node.prevX === null || dt <= 0.0001) {
+            node.velX = 0;
+            node.velY = 0;
+          } else {
+            const instVx = clamp((x - node.prevX) / (dt * 1000), -2.2, 2.2);
+            const instVy = clamp((y - node.prevY) / (dt * 1000), -2.2, 2.2);
+            const vEase = 1 - Math.exp(-dt * 12);
+            node.velX = lerp(node.velX, instVx, vEase);
+            node.velY = lerp(node.velY, instVy, vEase);
+          }
+          node.prevX = x;
+          node.prevY = y;
+
+          const inertiaRotY = clamp(node.velX * 7.5, -14, 14);
+          const inertiaRotX = clamp(-node.velY * 5.5, -10, 10);
+          const inertiaRotZ = clamp(node.velX * 2.2, -5, 5);
+
+          const rotY = lerp(orbitRotY, follow.x * 7, focus) + inertiaRotY;
+          const rotX = lerp(orbitRotX, -follow.y * 5.2, focus) + inertiaRotX;
+          const rotZ = lerp(orbitRotZ, 0, focus) + inertiaRotZ;
+
+          const ringBaseAlpha = lerp(0.78, 1.0, depthNorm);
+          let opacity = appear * ringBaseAlpha;
+          if (otherFocusAmt > 0) {
+            opacity *= lerp(1, 0.22, otherFocusAmt);
+          }
+          if (ch.convergeP > 0 && i !== ch.finaleInspectIndex) {
+            opacity *= 1 - smoothstep(0.66, 0.98, ch.convergeP);
+          }
+          if (focus > 0) {
+            opacity = Math.max(opacity, focus);
+          }
+
+          const depthBlur = (1 - depthNorm) * 0.65;
+          const blurPx =
+            focus > 0.05
+              ? (1 - focus) * depthBlur
+              : depthBlur + otherFocusAmt * 3.1;
+
+          node.screenX = x;
+          node.screenY = y;
+          node.scale = scale;
+          node.opacity = clamp(opacity);
+          node.z = focus > 0.1 ? 900 : pz1;
+          node.focus = focus;
+          node.depthNorm = depthNorm;
+
+          const el = node.el;
+          el.style.width = `${cardW}px`;
+          el.style.height = `${cardH}px`;
+          el.style.opacity = node.opacity.toFixed(4);
+          el.style.zIndex = String(Math.round(node.z + 500));
+          el.style.pointerEvents = node.opacity > 0.12 ? "auto" : "none";
+          el.style.filter = blurPx > 0.08 ? `blur(${blurPx.toFixed(2)}px)` : "none";
+          el.style.transform =
+            `translate3d(${(x - cardW / 2).toFixed(2)}px, ${(y - cardH / 2).toFixed(2)}px, 0) ` +
+            `scale(${scale.toFixed(4)}) ` +
+            `rotateX(${rotX.toFixed(2)}deg) rotateY(${rotY.toFixed(2)}deg) rotateZ(${rotZ.toFixed(2)}deg)`;
+
+          // 动态玻璃镜面高光带（严格跟随卡片实时 3D 朝向角 rotY/rotX 滑过卡面！）
+          const sheenShiftX = clamp(-rotY * 2.1 + follow.x * 16, -68, 68);
+          const sheenShiftY = clamp(-rotX * 1.6 + follow.y * 10, -40, 40);
+          const angleGlint = Math.exp(-Math.pow((rotY + 8) / 22, 2));
+          const sheenAlpha = clamp(0.18 + angleGlint * 0.42 + focus * 0.18, 0.15, 0.78);
+          node.sheen.style.transform = `translate3d(${sheenShiftX.toFixed(1)}%, ${sheenShiftY.toFixed(1)}%, 0)`;
+          node.sheen.style.opacity = sheenAlpha.toFixed(3);
+
+          if (focus > 0.04) {
+            const pCol = node.vendor.primary;
+            el.style.boxShadow =
+              `0 1.5px 0 rgba(255,255,255,1) inset, ` +
+              `0 0 0 1px rgba(${pCol[0]},${pCol[1]},${pCol[2]},${(0.16 + focus * 0.18).toFixed(3)}), ` +
+              `0 40px 88px -24px rgba(15,23,42,${(0.18 + focus * 0.10).toFixed(3)}), ` +
+              `0 20px 52px -14px rgba(${pCol[0]},${pCol[1]},${pCol[2]},${(focus * 0.24).toFixed(3)})`;
+          } else {
+            el.style.boxShadow = "";
+          }
+
+          // 使用固定高分辨率 Canvas 重绘内部微剧场，彻底无缩放跳变闪烁
+          if (node.opacity > 0.015) {
+            const c = node.ctx;
+            c.setTransform(node.canvas.width / CARD_BUFFER_W, 0, 0, node.canvas.height / CARD_BUFFER_H, 0, 0);
+            c.clearRect(0, 0, CARD_BUFFER_W, CARD_BUFFER_H);
+            drawCardAmbientBg(c, CARD_BUFFER_W, CARD_BUFFER_H, node.vendor, focus);
+            node.vendor.drawScene(c, CARD_BUFFER_W, CARD_BUFFER_H, ambientTime, focus, showcaseT);
+          }
+        }
+
+        // 先统一计算终态 9 枚行星的实时轨道坐标，确保粒子引力分流、星尘彗尾与 DOM 徽章 0 延迟严丝合缝
+        const finaleBadges = computeFinaleBadgeStates(ch, cx, cy);
+        drawStudioField(ch, cx, cy, ringRadius, cardW, cardH, spotlightVendorIdx, finaleBadges);
+        updateFinaleCore(ch);
+        updateFinaleOrbitBadges(ch, finaleBadges);
+
+        window.requestAnimationFrame(render);
+      }
+
+      function computeFinaleBadgeStates(ch, cx, cy) {
+        const show = ch.finaleP;
+        const fieldRx = width * 0.385;
+        const fieldRy = Math.min(height * 0.33, Math.max(138, fieldRx * 0.55));
+        const tilt = -0.16;
+        const cosT = Math.cos(tilt);
+        const sinT = Math.sin(tilt);
+        const fx = follow.x * 0.075 * fieldRx;
+        const fy = follow.y * 0.075 * fieldRy;
+        const angularVel = 0.16 + userOrbitVel;
+        const dirSign = angularVel >= 0 ? 1 : -1;
+        const speedExtra = Math.min(0.46, Math.abs(userOrbitVel) * 0.09);
+
+        const states = [];
+        for (let i = 0; i < COUNT; i++) {
+          const angle = ambientTime * 0.16 + userOrbitOffset + (i * TAU) / COUNT;
+          const localX = Math.cos(angle) * fieldRx * 1.03;
+          const localY = Math.sin(angle) * fieldRy * 1.03;
+          const sx = cx + fx + localX * cosT - localY * sinT;
+          const sy = cy + fy + localX * sinT + localY * cosT;
+
+          // 轨道切线方向单位向量（供粒子顺流偏转）
+          const dLx = -Math.sin(angle) * fieldRx * 1.03 * dirSign;
+          const dLy = Math.cos(angle) * fieldRy * 1.03 * dirSign;
+          const tx = dLx * cosT - dLy * sinT;
+          const ty = dLx * sinT + dLy * cosT;
+          const tMag = Math.hypot(tx, ty) || 1;
+
+          const depth = Math.sin(angle) * 0.5 + 0.5;
+          const stagger = easeOutBack(clamp((show - i * 0.036) / 0.65), 0.9);
+          const isSelected = ch.finaleInspectIndex === i;
+          const isHovered = hoveredBadgeIdx === i;
+          const dimmed = ch.finaleInspectIndex >= 0 && !isSelected ? 0.32 : 1;
+          const visible = clamp(stagger) * dimmed;
+
+          states.push({
+            index: i,
+            vendor: VENDORS[i],
+            angle,
+            sx,
+            sy,
+            tx: tx / tMag,
+            ty: ty / tMag,
+            depth,
+            stagger,
+            visible,
+            isSelected,
+            isHovered,
+            dirSign,
+            speedExtra,
+            fieldRx,
+            fieldRy,
+            cosT,
+            sinT,
+            fx,
+            fy,
+          });
+        }
+        return states;
+      }
+
+      /* =====================================================================
+         11. 底层 Canvas：动态色温影棚 + 贴地倒影 + 9 道彗尾 + 物理引力粒子星环
+         ===================================================================== */
+      function drawStudioField(ch, cx, cy, ringRadius, cardW, cardH, spotlightIdx, finaleBadges) {
+        const ctx = fieldCtx;
+        ctx.clearRect(0, 0, width, height);
+
+        // 1) 动态影棚色温基底（每家特写平滑过渡整个影棚灯光温度）
+        const bgGrad = ctx.createRadialGradient(
+          cx + follow.x * 36,
+          cy * 0.92 + follow.y * 22,
+          0,
+          cx,
+          cy,
+          Math.max(width, height) * 0.82
+        );
+        bgGrad.addColorStop(0, rgba(curBgCenter, 1));
+        bgGrad.addColorStop(1, rgba(curBgEdge, 1));
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, width, height);
+
+        // 2) 肉眼明确可感的高级环境色温双极光晕（克制、通透、换场仪式感拉满）
+        const rA = Math.max(width, height) * 0.56;
+        const gA = ctx.createRadialGradient(
+          cx - width * 0.14 + follow.x * 30,
+          cy - height * 0.06 + follow.y * 20,
+          0,
+          cx - width * 0.14,
+          cy - height * 0.06,
+          rA
+        );
+        gA.addColorStop(0, rgba(curHaloA, curHaloAlpha * (0.75 + ch.anyFocus * 0.45)));
+        gA.addColorStop(0.55, rgba(curHaloA, curHaloAlpha * 0.28));
+        gA.addColorStop(1, rgba(curHaloA, 0));
+        ctx.fillStyle = gA;
+        ctx.fillRect(0, 0, width, height);
+
+        const gB = ctx.createRadialGradient(
+          cx + width * 0.18 - follow.x * 24,
+          cy + height * 0.12 - follow.y * 16,
+          0,
+          cx + width * 0.18,
+          cy + height * 0.12,
+          rA * 0.85
+        );
+        gB.addColorStop(0, rgba(curHaloB, curHaloAlpha * (0.58 + ch.anyFocus * 0.42)));
+        gB.addColorStop(1, rgba(curHaloB, 0));
+        ctx.fillStyle = gB;
+        ctx.fillRect(0, 0, width, height);
+
+        // 3) 3D 轨道细线与重聚光谱能量环
+        const trackAlpha =
+          (timeline < ACT1_END
+            ? smoothstep(0.12, 0.82, ch.assembleP)
+            : 1 - smoothstep(0.2, 0.9, ch.convergeP)) *
+          lerp(1, 0.18, ch.anyFocus);
+
+        if (trackAlpha > 0.01) {
+          ctx.save();
+          ctx.translate(cx + follow.x * 10, cy + follow.y * 6);
+          ctx.rotate(ch.rollTilt);
+          const rx = ringRadius * (1 - easeInOutQuart(ch.convergeP));
+          const ry = rx * Math.sin(ch.pitchTilt);
+          if (rx > 8) {
+            ctx.strokeStyle = `rgba(15, 23, 42, ${(0.095 * trackAlpha).toFixed(4)})`;
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, rx, ry, 0, 0, TAU);
+            ctx.stroke();
+
+            if (ch.reformP > 0.01 && ch.convergeP < 0.96) {
+              const energy = ch.reformP * (1 - ch.convergeP * 0.55);
+              const g = ctx.createLinearGradient(-rx, 0, rx, 0);
+              g.addColorStop(0, `rgba(66,133,244,${0.55 * energy})`);
+              g.addColorStop(0.35, `rgba(124,58,237,${0.62 * energy})`);
+              g.addColorStop(0.7, `rgba(217,119,87,${0.55 * energy})`);
+              g.addColorStop(1, `rgba(20,184,166,${0.55 * energy})`);
+              ctx.strokeStyle = g;
+              ctx.lineWidth = 2.6 * energy;
+              ctx.beginPath();
+              ctx.ellipse(0, 0, rx, ry, 0, 0, TAU);
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+
+        // 4) 紧贴卡片下缘的柔和接触投影与环境溢色倒影
+        for (let i = 0; i < COUNT; i++) {
+          const n = cardNodes[i];
+          if (n.opacity < 0.06) continue;
+          const cardBottomY = n.screenY + (cardH * n.scale) * 0.5;
+          const shadowGap = lerp(14, 24, n.depthNorm) * (1 + n.focus * 0.35);
+          const shY = cardBottomY + shadowGap;
+          const shW = cardW * n.scale * 0.46;
+          const shH = Math.max(7, cardH * n.scale * 0.11);
+          const shAlpha = n.opacity * lerp(0.06, 0.16, n.depthNorm) * (1 + n.focus * 0.25);
+
+          ctx.save();
+          ctx.translate(n.screenX, shY);
+          ctx.scale(1, shH / Math.max(shW, 1));
+          const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, shW);
+          rg.addColorStop(0, `rgba(15, 23, 42, ${(shAlpha * 0.72).toFixed(4)})`);
+          rg.addColorStop(0.45, rgba(n.vendor.primary, shAlpha * 0.52));
+          rg.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = rg;
+          ctx.beginPath();
+          ctx.arc(0, 0, shW, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // 5) 9 道向心阿基米德螺线彗星能量臂
+        if (ch.convergeP > 0.02 && ch.bloomP < 0.96) {
+          const trailStrength = Math.sin(clamp(ch.convergeP) * Math.PI) * (1 - ch.bloomP * 0.65);
+          const cosRoll = Math.cos(ch.rollTilt);
+          const sinRoll = Math.sin(ch.rollTilt);
+          const sinPitch = Math.sin(ch.pitchTilt);
+
+          ctx.save();
+          ctx.lineCap = "round";
+          for (let i = 0; i < COUNT; i++) {
+            const v = VENDORS[i];
+            const samples = 24;
+            const pts = [];
+            for (let s = 0; s <= samples; s++) {
+              const back = s * 0.026;
+              const pS = clamp(ch.convergeP - back);
+              const rS = ringRadius * (1 - easeInOutQuart(pS));
+              const yawS = ch.ringYaw + (Math.pow(ch.convergeP, 1.75) - Math.pow(pS, 1.75)) * 4.8 + i * (TAU / COUNT);
+              const ox = Math.cos(yawS) * rS;
+              const oy = Math.sin(yawS) * rS * sinPitch;
+              pts.push({
+                x: cx + ox * cosRoll - oy * sinRoll,
+                y: cy + ox * sinRoll + oy * cosRoll,
+              });
+            }
+            if (pts.length >= 2) {
+              const head = pts[0];
+              const tail = pts[pts.length - 1];
+              const tg = ctx.createLinearGradient(head.x, head.y, tail.x, tail.y);
+              tg.addColorStop(0, rgba(v.primary, 0.88 * trailStrength));
+              tg.addColorStop(0.5, rgba(v.secondary, 0.45 * trailStrength));
+              tg.addColorStop(1, rgba(v.accent, 0));
+
+              ctx.strokeStyle = tg;
+              ctx.lineWidth = 3.6 * trailStrength + 0.8;
+              ctx.beginPath();
+              ctx.moveTo(pts[0].x, pts[0].y);
+              for (let s = 1; s < pts.length; s++) ctx.lineTo(pts[s].x, pts[s].y);
+              ctx.stroke();
+
+              ctx.beginPath();
+              ctx.arc(head.x, head.y, 3.8 * trailStrength, 0, TAU);
+              ctx.fillStyle = rgba(v.primary, 0.92 * trailStrength);
+              ctx.fill();
+            }
+          }
+          ctx.restore();
+        }
+
+        // 6) 中心 9 合 1 融合脉冲（直接演化成中心光学呼吸光舱）
+        if (ch.convergeP > 0.52 && ch.bloomP < 1) {
+          const peak = smoothstep(0.52, 0.98, ch.convergeP) * (1 - smoothstep(0.18, 0.96, ch.bloomP));
+          const coreR = Math.min(width, height) * (0.05 + ch.bloomP * 0.36);
+
+          const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+          cg.addColorStop(0, `rgba(255, 255, 255, ${0.98 * peak})`);
+          cg.addColorStop(0.24, `rgba(124, 58, 237, ${0.52 * peak})`);
+          cg.addColorStop(0.58, `rgba(59, 130, 246, ${0.24 * peak})`);
+          cg.addColorStop(1, "rgba(255, 255, 255, 0)");
+          ctx.fillStyle = cg;
+          ctx.beginPath();
+          ctx.arc(cx, cy, coreR, 0, TAU);
+          ctx.fill();
+
+          if (ch.bloomP > 0.01) {
+            const waveR = Math.min(width, height) * (0.06 + easeOutCubic(ch.bloomP) * 0.44);
+            ctx.strokeStyle = `rgba(124, 58, 237, ${(1 - ch.bloomP) * 0.52})`;
+            ctx.lineWidth = 2.4 * (1 - ch.bloomP * 0.55);
+            ctx.beginPath();
+            ctx.arc(cx, cy, waveR, 0, TAU);
+            ctx.stroke();
+          }
+        }
+
+        // 7) 智启 Agent 同源倾斜粒子星环（-0.16 rad）
+        //    终态下与 9 枚厂商行星发生真实物理微引力交互：68px 内粒子自动按该家配色染色并如水流般分流绕行！
+        const particleVisibility = lerp(0.32, 1.0, ch.bloomP);
+        const tilt = ch.rollTilt;
+        const tiltCos = Math.cos(tilt);
+        const tiltSin = Math.sin(tilt);
+        const fieldRx = width * 0.38;
+        const fieldRy = Math.min(height * 0.32, Math.max(132, fieldRx * 0.54));
+        const breathing = Math.sin(ambientTime * 1.48) * 0.045 + Math.sin(ambientTime * 2.55) * 0.016;
+        const ringRad = lerp(0.55, 1.0, easeOutBack(ch.bloomP, 0.7)) * (1 + breathing);
+        const arcPhase = 1.33 + Math.sin(ambientTime * 0.27) * 0.44;
+        const fx = follow.x * 0.075 + Math.sin(ambientTime * 0.47) * 0.032;
+        const fy = follow.y * 0.075 + Math.sin(ambientTime * 0.63) * 0.025;
+
+        const fieldMode = spotlightIdx >= 0 ? VENDORS[spotlightIdx].fieldMode : "none";
+        const modeAmp = ch.anyFocus;
+
+        if (ch.bloomP > 0.05) {
+          ctx.save();
+          ctx.translate(cx + fx * fieldRx, cy + fy * fieldRy);
+          ctx.rotate(tilt);
+          ctx.scale(fieldRx * 1.28, fieldRy * 1.30);
+          const halo = ctx.createRadialGradient(-0.1, 0.1, 0, 0, 0, 1);
+          halo.addColorStop(0, rgba(curAccent, 0.095 * ch.bloomP));
+          halo.addColorStop(0.58, rgba(curTint, 0.115 * ch.bloomP));
+          halo.addColorStop(1, rgba(curTint, 0));
+          ctx.fillStyle = halo;
+          ctx.fillRect(-1, -1, 2, 2);
+          ctx.restore();
+        }
+
+        const wakeActive = ch.finaleP > 0.02 && finaleBadges && finaleBadges.length === COUNT;
+        const wakeRadius = 74;
+
+        ctx.save();
+        ctx.lineCap = "round";
+
+        for (let i = 0; i < PARTICLES.length; i++) {
+          const p = PARTICLES[i];
+          const x = p.x + Math.sin(ambientTime * 0.92 + p.phase) * 0.018;
+          const y = p.y + Math.cos(ambientTime * 0.78 + p.phase) * 0.022;
+          const lx = x - fx;
+          const ly = y - fy;
+          const ang = Math.atan2(ly, lx);
+          const dist = Math.hypot(lx, ly);
+          const offset = dist - ringRad + Math.sin(ang * 4 + ambientTime) * 0.022;
+
+          const broad = Math.exp(-(((offset + 0.034) / 0.145) ** 2));
+          const rim = Math.exp(-((offset / 0.058) ** 2));
+          const arc = 0.56 + 0.44 * (0.5 + 0.5 * Math.cos(ang * 2 + arcPhase)) ** 2;
+          const band = broad * 0.42 + rim * 0.58;
+          const strength = band * arc;
+
+          let highlight = 0;
+          let radialAdj = 0;
+          if (modeAmp > 0.05) {
+            if (fieldMode === "glint") {
+              const gAng = -2.8 + ((ambientTime * 1.4) % TAU);
+              highlight = band * arcLight(ang, gAng, 0.36) * modeAmp;
+            } else if (fieldMode === "align") {
+              const al = arcLight(ang, 1.9, 0.9) * Math.sqrt(band) * modeAmp;
+              highlight = al * 0.58;
+              radialAdj = al * (ringRad - dist) * 0.8;
+            } else if (fieldMode === "double_arc") {
+              const sec = arcLight(ang, -1.05, 0.85) * Math.exp(-(((offset - 0.16) / 0.06) ** 2)) * modeAmp;
+              highlight = sec * 0.72;
+              radialAdj = sec * (ringRad + 0.16 - dist) * 0.75;
+            } else if (fieldMode === "slash") {
+              const slashAng = -Math.PI / 4;
+              highlight = band * (arcLight(ang, slashAng, 0.28) + arcLight(ang, slashAng + Math.PI, 0.28)) * 0.75 * modeAmp;
+            } else {
+              highlight = band * arcLight(ang, ambientTime * 0.9, 0.6) * 0.48 * modeAmp;
+            }
+          }
+
+          const alignScale = 1 + radialAdj / Math.max(dist, 0.01);
+          const px = (fx + lx * alignScale) * fieldRx;
+          const py = (fy + ly * alignScale) * fieldRy;
+          let sx = cx + px * tiltCos - py * tiltSin;
+          let sy = cy + px * tiltSin + py * tiltCos;
+
+          // 检测粒子是否落入 9 颗行星的物理微引力场（60~74px 内流体绕流 + 专属色局部染色）
+          let wakeWeight = 0;
+          let wakeRgb = null;
+          let wakeDir = null;
+          if (wakeActive) {
+            let bestW = 0;
+            let bestB = null;
+            let bestDx = 0;
+            let bestDy = 0;
+            let bestD = 0;
+            for (let bi = 0; bi < COUNT; bi++) {
+              const b = finaleBadges[bi];
+              if (b.visible < 0.05) continue;
+              const dx = sx - b.sx;
+              const dy = sy - b.sy;
+              const d = Math.hypot(dx, dy);
+              const rInf = b.isHovered || b.isSelected ? wakeRadius * 1.22 : wakeRadius;
+              if (d < rInf) {
+                const rawW = (1 - d / rInf) * b.visible;
+                if (rawW > bestW) {
+                  bestW = rawW;
+                  bestB = b;
+                  bestDx = dx;
+                  bestDy = dy;
+                  bestD = d;
+                }
+              }
+            }
+
+            if (bestB && bestW > 0.01) {
+              const smoothW = Math.pow(bestW, 1.35);
+              wakeWeight = smoothW;
+              // 流体绕流排斥：像水流绕过石块一样温柔分流，避免硬切空洞，并在边缘形成丝滑流线
+              const invD = 1 / Math.max(bestD, 1);
+              const nx = bestDx * invD;
+              const ny = bestDy * invD;
+              const push = Math.sin(clamp(bestW) * Math.PI) * 15.5 * (bestB.isHovered ? 1.25 : 1);
+              // 稍微顺着行星尾流方向带一点拖曳感
+              sx += nx * push - bestB.tx * smoothW * 5.0;
+              sy += ny * push - bestB.ty * smoothW * 5.0;
+
+              // 粒子流线朝向向行星绕流切线偏转
+              const side = bestDx * bestB.ty - bestDy * bestB.tx >= 0 ? 1 : -1;
+              wakeDir = Math.atan2(bestB.ty + ny * 0.42 * side, bestB.tx + nx * 0.42 * side);
+
+              // 按该厂商专属色板染色（Gemini 按局部角度折射四色，其他按专属主/辅色平滑渐变）
+              const colorU = bestB.vendor.trail.spectrum
+                ? ((Math.atan2(bestDy, bestDx) / TAU + 1) % 1)
+                : clamp(1 - bestW);
+              wakeRgb = sampleTrailColor(bestB.vendor.trail, colorU);
+            }
+          }
+
+          if (strength < 0.055 && highlight < 0.045 && wakeWeight < 0.08 && p.seed < 0.5) continue;
+
+          let len = 0.85 + p.seed * 0.95 + strength * 5.2 * particleVisibility + highlight * 5.0;
+          if (wakeWeight > 0.01) {
+            len += wakeWeight * 5.6;
+          }
+
+          let dir = Math.atan2(ly * fieldRy, lx * fieldRx) + tilt + Math.sin(p.phase + ambientTime) * 0.16;
+          if (highlight > 0.04 || ch.bloomP > 0.25) {
+            const tan = Math.atan2(lx * fieldRy, -ly * fieldRx) + tilt;
+            const turn = tan - dir;
+            const shortest = Math.atan2(Math.sin(2 * turn), Math.cos(2 * turn)) / 2;
+            dir += shortest * clamp(highlight * 2.2 + ch.bloomP * 0.58);
+          }
+          if (wakeDir !== null) {
+            const turnW = wakeDir - dir;
+            const shortW = Math.atan2(Math.sin(2 * turnW), Math.cos(2 * turnW)) / 2;
+            dir += shortW * clamp(wakeWeight * 1.15);
+          }
+
+          const tx = Math.cos(dir) * len * 0.5;
+          const ty = Math.sin(dir) * len * 0.5;
+          const alpha = clamp(
+            (0.12 + strength * 0.82 + highlight * 0.64) * particleVisibility + wakeWeight * 0.44,
+            0,
+            0.98
+          );
+
+          const baseRgb = rim * arc > 0.34 && p.seed > 0.3 ? curAccent : curTint;
+          const finalRgb = wakeRgb ? mixRgb(baseRgb, wakeRgb, clamp(wakeWeight * 1.35)) : baseRgb;
+
+          ctx.globalAlpha = alpha;
+          ctx.strokeStyle = rgba(finalRgb, 1);
+          ctx.lineWidth = 0.9 + strength * 1.15 + wakeWeight * 0.85;
+          ctx.beginPath();
+          ctx.moveTo(sx - tx, sy - ty);
+          ctx.lineTo(sx + tx, sy + ty);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        // 8) 9 颗行星各自的「专属配色彗星微尾迹」+ 柔和星光晕（与粒子星环浑然一体）
+        if (wakeActive) {
+          drawFinalePlanetTrails(ctx, cx, cy, finaleBadges);
+        }
+      }
+
+      function drawFinalePlanetTrails(ctx, cx, cy, finaleBadges) {
+        ctx.save();
+        ctx.lineCap = "round";
+
+        for (let i = 0; i < COUNT; i++) {
+          const b = finaleBadges[i];
+          if (b.visible <= 0.02) continue;
+
+          const trail = b.vendor.trail;
+          const boost = b.isHovered || b.isSelected ? 1.32 : 1.0;
+          const depthAlpha = lerp(0.72, 1.0, b.depth) * b.visible;
+          // 尾迹弧度：平时优雅细腻（0.34 rad），拖拽/滚轮甩动时顺着惯性自然拉长！
+          const arcSpan = (0.34 + b.speedExtra) * (b.isHovered ? 1.18 : 1.0);
+          const segs = 22;
+
+          // (A) 沿倾斜椭圆轨道绘制专属配色渐隐彗星光带（支持 Gemini 四色虹彩平滑过渡！）
+          const pts = [];
+          for (let s = 0; s <= segs; s++) {
+            const u = s / segs; // 0=行星中心, 1=尾迹末端
+            const a = b.angle - b.dirSign * u * arcSpan;
+            const lx = Math.cos(a) * b.fieldRx * 1.03;
+            const ly = Math.sin(a) * b.fieldRy * 1.03;
+            pts.push({
+              x: cx + b.fx + lx * b.cosT - ly * b.sinT,
+              y: cy + b.fy + lx * b.sinT + ly * b.cosT,
+              u,
+            });
+          }
+
+          // 外层极柔和彩色光晕宽尾（让行星像在星河里滑过留下一道柔光水痕）
+          for (let s = 0; s < segs; s++) {
+            const p0 = pts[s];
+            const p1 = pts[s + 1];
+            const uMid = (p0.u + p1.u) * 0.5;
+            const fade = Math.pow(1 - uMid, 1.9);
+            const col = sampleTrailColor(trail, uMid);
+
+            ctx.strokeStyle = rgba(col, 0.16 * fade * depthAlpha * boost);
+            ctx.lineWidth = (11.5 * (1 - uMid * 0.72)) * lerp(0.85, 1.08, b.depth);
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+
+            // 内核精致亮丝彗尾
+            ctx.strokeStyle = rgba(col, 0.58 * fade * depthAlpha * boost);
+            ctx.lineWidth = (2.5 * (1 - uMid * 0.78)) * lerp(0.88, 1.12, b.depth);
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+          }
+
+          // (B) 沿尾迹飘散的 16 颗细腻专属色星尘微丝（自然微漂移 + 越往后越轻盈消散）
+          for (let m = 0; m < TRAIL_MOTES.length; m++) {
+            const mote = TRAIL_MOTES[m];
+            // 星尘在尾迹里顺着公转缓缓向后流逝循环
+            const u = (mote.u + ambientTime * 0.28) % 1;
+            const a = b.angle - b.dirSign * (0.04 + u * arcSpan * 1.18);
+            const lx = Math.cos(a) * b.fieldRx * 1.03;
+            const ly = Math.sin(a) * b.fieldRy * 1.03;
+            const bx = cx + b.fx + lx * b.cosT - ly * b.sinT;
+            const by = cy + b.fy + lx * b.sinT + ly * b.cosT;
+
+            // 切线与法线方向
+            const dlx = -Math.sin(a) * b.fieldRx * 1.03 * b.dirSign;
+            const dly = Math.cos(a) * b.fieldRy * 1.03 * b.dirSign;
+            const tx0 = dlx * b.cosT - dly * b.sinT;
+            const ty0 = dlx * b.sinT + dly * b.cosT;
+            const tLen = Math.hypot(tx0, ty0) || 1;
+            const tx = tx0 / tLen;
+            const ty = ty0 / tLen;
+            const nx = -ty;
+            const ny = tx;
+
+            // 越靠尾部扩散稍微更开、飘荡更柔和
+            const drift = (mote.spread * (6 + u * 16)) + Math.sin(ambientTime * 2.4 + mote.phase) * 2.5 * u;
+            const mx = bx + nx * drift;
+            const my = by + ny * drift;
+            const tailLen = (2.4 + (1 - u) * 5.2 + b.speedExtra * 8) * mote.size;
+            const fade = Math.pow(1 - u, 1.35) * smoothstep(0.0, 0.12, u);
+            const col = sampleTrailColor(trail, u);
+
+            ctx.strokeStyle = rgba(col, 0.84 * fade * depthAlpha * boost);
+            ctx.lineWidth = (0.95 + (1 - u) * 1.1) * mote.size;
+            ctx.beginPath();
+            ctx.moveTo(mx - tx * tailLen * 0.5, my - ty * tailLen * 0.5);
+            ctx.lineTo(mx + tx * tailLen * 0.5, my + ty * tailLen * 0.5);
+            ctx.stroke();
+          }
+
+          // (C) 行星底部柔和专属光晕（柔和衔接白圆徽章与周围星河，彻底告别硬贴纸感）
+          const haloR = (b.isHovered || b.isSelected ? 48 : 38) * lerp(0.88, 1.08, b.depth);
+          const hg = ctx.createRadialGradient(b.sx, b.sy, 10, b.sx, b.sy, haloR);
+          hg.addColorStop(0, rgba(trail.head, 0.24 * depthAlpha * boost));
+          hg.addColorStop(0.55, rgba(trail.mid, 0.10 * depthAlpha * boost));
+          hg.addColorStop(1, rgba(trail.tail, 0));
+          ctx.fillStyle = hg;
+          ctx.beginPath();
+          ctx.arc(b.sx, b.sy, haloR, 0, TAU);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      /* =====================================================================
+         12. 终场正中央「纯无字呼吸光学胶囊」
+             —— 与智启 Agent 输入框 Composer 形态呼应，未来无缝原地展开！
+         ===================================================================== */
+      function updateFinaleCore(ch) {
+        const show = ch.finaleP;
+        const hideForInspect = smoothstep(0.04, 0.42, clamp(ch.finaleInspectFocus));
+        const vis = clamp(show * (1 - hideForInspect));
+
+        if (vis <= 0.008) {
+          finaleCoreEl.style.opacity = "0";
+          return;
+        }
+
+        const pop = easeSpringOut(clamp(show));
+        const sc = lerp(0.76, 1.0, pop) * lerp(1, 0.92, hideForInspect);
+        const px = follow.x * 7;
+        const py = follow.y * 5;
+        finaleCoreEl.style.opacity = vis.toFixed(3);
+        finaleCoreEl.style.transform =
+          `translate(calc(-50% + ${px.toFixed(1)}px), calc(-50% + ${py.toFixed(1)}px)) scale(${sc.toFixed(4)})`;
+
+        // 绘制胶囊内部纯无字呼吸微光（左侧光标呼吸脉动 + 底部星光渐变流轨 + 右下圆形发送箭头轮廓）
+        const cw = coreCanvas.width / dpr;
+        const chH = coreCanvas.height / dpr;
+        const ctx = coreCtx;
+        ctx.clearRect(0, 0, cw, chH);
+
+        // (1) 左上方柔和闪烁的极简输入光标竖线（无字却瞬间传递“准备就绪、等待指令”！）
+        const blink = 0.25 + 0.75 * (Math.sin(ambientTime * 3.4) * 0.5 + 0.5);
+        ctx.fillStyle = `rgba(124, 58, 237, ${(0.82 * blink).toFixed(3)})`;
+        roundedRectPath(ctx, 26, 22, 2.4, 18, 1.2);
+        ctx.fill();
+
+        // 极淡的抽象占位呼吸线条（像待输入的柔光呼吸条，不放任何文字）
+        const barW = Math.min(cw * 0.36, 175);
+        const shimmer = (Math.sin(ambientTime * 1.8) * 0.5 + 0.5) * 0.07;
+        roundedRectPath(ctx, 38, 28, barW, 6, 3);
+        ctx.fillStyle = `rgba(15, 23, 42, ${(0.055 + shimmer).toFixed(3)})`;
+        ctx.fill();
+
+        // (2) 左下角：呼应智启 Agent 截图里那条标志性的紫粉星光推杆（纯图形无文字！）
+        const pillX = 24;
+        const pillY = chH - 30;
+        const pillW = Math.min(cw * 0.34, 152);
+        const pillH = 14;
+        const pg = ctx.createLinearGradient(pillX, 0, pillX + pillW, 0);
+        pg.addColorStop(0, "#9333EA");
+        pg.addColorStop(0.55, "#C026D3");
+        pg.addColorStop(1, "#DB2777");
+        roundedRectPath(ctx, pillX, pillY, pillW, pillH, pillH * 0.5);
+        ctx.fillStyle = pg;
+        ctx.fill();
+
+        // 推杆内流动的小星光微粒
+        for (let k = 0; k < 5; k++) {
+          const sx = pillX + 12 + ((k * 28 + ambientTime * 22) % (pillW - 28));
+          const sy = pillY + pillH * (0.35 + (k % 2) * 0.3);
+          const sa = 0.4 + 0.6 * (Math.sin(ambientTime * 4 + k * 1.3) * 0.5 + 0.5);
+          ctx.beginPath();
+          ctx.arc(sx, sy, 1.35, 0, TAU);
+          ctx.fillStyle = `rgba(255, 255, 255, ${sa.toFixed(2)})`;
+          ctx.fill();
+        }
+        // 推杆右端发光圆环滑块
+        ctx.beginPath();
+        ctx.arc(pillX + pillW - 7, pillY + pillH * 0.5, 4.5, 0, TAU);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(pillX + pillW - 7, pillY + pillH * 0.5, 2.0, 0, TAU);
+        ctx.fillStyle = "#C026D3";
+        ctx.fill();
+
+        // (3) 右下角：极简圆形上箭头触发徽记
+        const ax = cw - 30;
+        const ay = chH - 23;
+        ctx.beginPath();
+        ctx.arc(ax, ay, 13, 0, TAU);
+        ctx.fillStyle = "rgba(15, 23, 42, 0.065)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.38)";
+        ctx.lineWidth = 1.6;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(ax, ay + 4.5);
+        ctx.lineTo(ax, ay - 4.5);
+        ctx.moveTo(ax - 3.8, ay - 0.8);
+        ctx.lineTo(ax, ay - 4.5);
+        ctx.lineTo(ax + 3.8, ay - 0.8);
+        ctx.stroke();
+
+        // 顶部柔和流光边掠过
+        const sweepX = ((ambientTime * 95) % (cw + 180)) - 90;
+        const sg = ctx.createLinearGradient(sweepX - 70, 0, sweepX + 70, 0);
+        sg.addColorStop(0, "rgba(124, 58, 237, 0)");
+        sg.addColorStop(0.5, "rgba(192, 38, 211, 0.28)");
+        sg.addColorStop(1, "rgba(124, 58, 237, 0)");
+        ctx.fillStyle = sg;
+        ctx.fillRect(0, 0, cw, 2);
+      }
+
+      /* =====================================================================
+         13. 终态星环外缘 9 枚带 3D 纵深感的可交互微缩徽章（复用实时坐标，与尾迹 0 延迟对齐）
+         ===================================================================== */
+      function updateFinaleOrbitBadges(ch, finaleBadges) {
+        const show = ch.finaleP;
+        for (let i = 0; i < COUNT; i++) {
+          const b = badgeNodes[i];
+          const st = finaleBadges[i];
+          if (show <= 0.01) {
+            b.el.style.opacity = "0";
+            b.el.style.pointerEvents = "none";
+            continue;
+          }
+          const depthScale = lerp(0.86, 1.09, st.depth);
+          const depthAlpha = lerp(0.84, 1.0, st.depth);
+          const emphasisScale = st.isSelected ? 1.18 : st.isHovered ? 1.12 : 1.0;
+
+          b.el.style.opacity = (st.visible * depthAlpha).toFixed(3);
+          b.el.style.zIndex = String(24 + Math.round(st.depth * 10));
+          b.el.style.pointerEvents = st.stagger > 0.4 ? "auto" : "none";
+          b.el.style.transform =
+            `translate3d(${(st.sx - 24).toFixed(2)}px, ${(st.sy - 24).toFixed(2)}px, 0) ` +
+            `scale(${(clamp(st.stagger, 0, 1.15) * depthScale * emphasisScale).toFixed(3)})`;
+          b.el.style.borderColor = st.isSelected || st.isHovered
+            ? rgba(st.vendor.trail.head, 0.78)
+            : rgba(st.vendor.trail.head, 0.24);
+          b.el.style.boxShadow = st.isSelected || st.isHovered
+            ? `0 0 0 1.5px ${rgba(st.vendor.trail.head, 0.45)}, 0 14px 32px -6px ${rgba(st.vendor.trail.head, 0.34)}`
+            : `0 0 0 1px ${rgba(st.vendor.trail.head, 0.14)}, 0 10px 24px -8px ${rgba(st.vendor.trail.head, 0.24)}`;
+        }
+      }
+
+      window.requestAnimationFrame(render);
+    })();
+  </script>
+</body>
+</html>

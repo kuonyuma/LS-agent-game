@@ -190,3 +190,26 @@ async def test_fetch_web_page_handles_http_errors():
 
     assert result.is_error
     assert "HTTP 404" in result.content
+
+
+@pytest.mark.asyncio
+async def test_fetch_web_page_uses_deepseek_fetch_api_for_markdown():
+    async def fake_ds_fetch(url: str, timeout: float, api_key: str):
+        assert url == "https://example.com/article"
+        assert timeout == 30.0
+        assert api_key == "sk-ds-test"
+        return {
+            "title": "DeepSeek Fetch 文章标题",
+            "content": "# 标题\n\n这是由 DeepSeek Fetch 返回的 Markdown 正文。",
+        }
+
+    tool = FetchWebPageTool(
+        deepseek_api_key="sk-ds-test",
+        deepseek_fetcher=fake_ds_fetch,
+    )
+    result = await tool.run({"url": "https://example.com/article"})
+
+    assert not result.is_error
+    assert "DeepSeek Fetch API" in result.content
+    assert "DeepSeek Fetch 文章标题" in result.content
+    assert "Markdown 正文" in result.content

@@ -53,9 +53,9 @@ class TaskPolicy:
             )
         return ""
 
-    def before_completion(self, turn: int, max_turns: int) -> StrategyDecision:
+    def before_completion(self, turn: int, max_turns: int | None) -> StrategyDecision:
         plan = self.plan
-        if turn >= max_turns:
+        if max_turns is not None and turn >= max_turns:
             return StrategyDecision()
         if (
             self.use_reflection

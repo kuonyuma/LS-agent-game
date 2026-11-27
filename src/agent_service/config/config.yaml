@@ -1,4 +1,120 @@
 model:
-  name: gemini-3.7-flash
-  max_tokens: 4096
+  provider: gemini
+  name: gemini-4-hydrogen
+  max_tokens: 65536
   key: "your..."
+
+embedding:
+  provider: gemini
+  model: gemini-embedding-2
+  dimensions: 1536
+  base_url: ""
+  env_key: GEMINI_API_KEY
+
+providers:
+  gemini:
+    label: "Google Gemini"
+    protocol: gemini
+    env_key: GEMINI_API_KEY
+    default_model: gemini-4-hydrogen
+    thinking_mode: always_on
+    json_mode: json_schema
+    models:
+      - id: gemini-4-hydrogen
+        label: "Gemini 4 Hydrogen"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 65536
+        thinking_levels:
+          - low
+          - medium
+          - high
+          - xhigh
+        default_thinking_level: high
+        effort_visual: {level: xhigh, effect: glint, duration_ms: 940}
+      - id: gemini-4-neon
+        label: "Gemini 4 Neon"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 65536
+        thinking_levels:
+          - low
+          - medium
+          - high
+          - xhigh
+        default_thinking_level: high
+        effort_visual: {level: xhigh, effect: glint, duration_ms: 940}
+      - id: gemini-4-carbon
+        label: "Gemini 4 Carbon"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 65536
+        thinking_levels:
+          - low
+          - medium
+          - high
+        default_thinking_level: medium
+  deepseek:
+    label: "DeepSeek"
+    protocol: openai_compat
+    base_url: "https://api.deepseek.com"
+    env_key: DEEPSEEK_API_KEY
+    default_model: deepseek-flash
+    thinking_mode: toggleable
+    json_mode: json_object
+    models:
+      - id: deepseek-flash
+        label: "DeepSeek Flash (V4.1)"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 393216
+        thinking_levels:
+          - "off"
+          - low
+          - high
+          - max
+        default_thinking_level: high
+        effort_visual: {level: max, effect: align, duration_ms: 900}
+      - id: deepseek-v4-pro
+        label: "DeepSeek V4 Pro"
+        supports_vision: false
+        supports_thinking: true
+        max_output_tokens: 393216
+        thinking_levels:
+          - "off"
+          - low
+          - high
+          - max
+        default_thinking_level: high
+        effort_visual: {level: max, effect: align, duration_ms: 900}
+  kimi:
+    label: "Kimi (Moonshot)"
+    protocol: openai_compat
+    base_url: "https://api.moonshot.cn/v1"
+    env_key: MOONSHOT_API_KEY
+    default_model: kimi-k3.1-pro
+    thinking_mode: always_on
+    json_mode: json_schema
+    models:
+      - id: kimi-k3.1-pro
+        label: "Kimi K3.1 Pro"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        thinking_levels:
+          - low
+          - high
+          - max
+        default_thinking_level: max
+        effort_visual: {level: max, effect: double_arc, duration_ms: 880}
+      - id: kimi-k3.1-pro-highspeed
+        label: "Kimi K3.1 Pro Highspeed"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        thinking_levels:
+          - low
+          - high
+          - max
+        default_thinking_level: max
+        effort_visual: {level: max, effect: double_arc, duration_ms: 880}

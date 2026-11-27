@@ -32,7 +32,7 @@ class AgentRoleProfile:
     description: str
     system_prompt_addon: str
     allowed_tools: frozenset[str] | None
-    max_turns: int
+    max_turns: int | None
     plan_and_execute: bool
     graceful_final_turn: bool = True
     read_only_role: bool = False
@@ -58,9 +58,10 @@ ROLE_PROFILES: dict[SubagentRole, AgentRoleProfile] = {
                 "load_yaml",
                 "web_search",
                 "fetch_web_page",
+                "search_knowledge_base",
             }
         ),
-        max_turns=10,
+        max_turns=None,
         plan_and_execute=False,
         graceful_final_turn=True,
         read_only_role=True,
@@ -86,7 +87,7 @@ ROLE_PROFILES: dict[SubagentRole, AgentRoleProfile] = {
                 "run_command",
             }
         ),
-        max_turns=10,
+        max_turns=None,
         plan_and_execute=False,
         graceful_final_turn=True,
         read_only_role=False,
@@ -109,7 +110,7 @@ ROLE_PROFILES: dict[SubagentRole, AgentRoleProfile] = {
                 "run_command",
             }
         ),
-        max_turns=6,
+        max_turns=None,
         plan_and_execute=False,
         graceful_final_turn=True,
         read_only_role=False,
@@ -124,7 +125,7 @@ ROLE_PROFILES: dict[SubagentRole, AgentRoleProfile] = {
             "- 独立完成主代理委派的综合子任务，并在完成后输出清晰的交付总结。"
         ),
         allowed_tools=None,
-        max_turns=10,
+        max_turns=None,
         plan_and_execute=True,
         graceful_final_turn=True,
         read_only_role=False,
@@ -184,7 +185,11 @@ def _extract_final_text(
 
     for content in reversed(new_contents):
         if content.role == "model" and content.parts:
-            texts = [part.text for part in content.parts if part.text]
+            texts = [
+                part.text
+                for part in content.parts
+                if part.text and not getattr(part, "thought", False)
+            ]
             if texts:
                 return "".join(texts).strip()
     return streamed_text.strip()

@@ -39,7 +39,7 @@
   `adapters/tools/index.py:create_tool_registry()`；不是添加文件就自动开放。
 - `read_only=False` 必须逐次审批，默认拒绝；ID、工具名、参数指纹必须绑定。
 - 声明表、注册表、允许表、阶段限制必须一致；未声明工具不能执行。
-- 单次 query 硬上限 10 轮，不能改为无限循环。
+- 单次 query 默认不设固定轮数上限（`max_turns=None`），依靠连续重复调用死循环检测（Loop Detection）与用户停止信号兜底；显式传入 `max_turns` 时仍严格限轮。
 - 计划/反思/协作工具每次运行独立绑定；不得跨运行共享计划或子会话。
 - 文件工具使用 WorkspacePathPolicy，只接受工作区相对路径并拒绝敏感路径及链接。
   shell 经审批仍是高权限本地操作，不是沙箱。

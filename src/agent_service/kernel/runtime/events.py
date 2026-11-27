@@ -9,6 +9,7 @@ from agent_service.kernel.strategy.plan import AgentPhase, ExecutionPlan
 
 LoopEventType = Literal[
     "safety.blocked",
+    "thinking.delta",
     "text.delta",
     "plan.updated",
     "reflection.updated",

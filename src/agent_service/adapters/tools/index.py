@@ -20,23 +20,28 @@ from agent_service.kernel.dispatch.base import Tool
 
 def create_tool_registry(
     workspace: WorkspacePathPolicy | None = None,
+    *,
+    deepseek_api_key: str | None = None,
+    knowledge_tool: Tool | None = None,
 ) -> dict[str, Tool]:
-    """每次组装创建独立工具实例；工作区能力由调用方显式配置。"""
+    """每次组装创建独立工具实例；工作区能力与知识库能力由调用方显式配置。"""
     tools: list[Tool] = [
         ListFilesTool(workspace),
         ReadFileTool(workspace),
         WriteFileTool(workspace),
         EditFileTool(workspace),
         LoadYamlTool(workspace),
-        RunCommandTool(),
+        RunCommandTool(workspace),
         UpdatePlanTool(),
         ReflectTool(),
         SubagentTool(),
-        WebSearchTool(),
-        FetchWebPageTool(),
+        WebSearchTool(deepseek_api_key=deepseek_api_key),
+        FetchWebPageTool(deepseek_api_key=deepseek_api_key),
     ]
     if workspace is not None:
         tools.append(QualityCheckTool(workspace))
+    if knowledge_tool is not None:
+        tools.append(knowledge_tool)
     registry = {tool.name: tool for tool in tools}
     if len(registry) != len(tools):
         raise ValueError("工具注册失败：工具名称不能重复")

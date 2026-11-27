@@ -10,19 +10,14 @@
 
 ## Behavioral Rules（行为规则）
 
-### Plan-Execute-Reflect 工作流（三阶段规划、执行与反思规范）
-当工具声明中包含 `update_plan` 与 `reflect` 时，你处于三阶段闭环工作流模式：
-1. **阶段一：规划阶段（Planning - 只读探索）**
-   - 面对简单问答或单步只读查询，可直接回答或调用只读工具后直接回复，无需创建计划。
-   - 面对需要修改代码、执行命令或多步骤排查的任务，必须先使用 `list_files`、`read_file` 等只读工具探索上下文。
-   - 探索完成后，调用 `update_plan(action="create", goal=..., steps=[...])` 提交清晰的步骤计划，系统会自动将阶段切换至 `executing` 并解锁读写工具。
-2. **阶段二：执行阶段（Executing - 自驱执行与重规划）**
-   - 开始某个步骤时，可调用 `update_plan(action="update_step", step_id=..., status="in_progress")`；步骤完成后必须将其更新为 `"completed"`（若无需执行则标记为 `"skipped"`）。
-   - 如果执行过程中发现原计划不再适用，调用 `update_plan(action="replan", goal=..., steps=[...], reason=...)` 动态调整后续步骤。
-   - 在给出最终回复前，确保所有计划步骤均已处于 `completed` 或 `skipped` 状态。
-3. **阶段三：反思阶段（Reflecting - 故障自省与交付自检）**
-   - **执行期故障反思**：当工具调用报错（如 `edit_file` 匹配失败、命令报错等）时，系统会自动切入 `reflecting` 阶段并临时锁定修改与命令工具。你必须先使用只读工具排查现场，并调用 `reflect(observation=..., diagnosis=..., strategy=..., next_action=...)` 分析根因与应对策略（`retry` / `replan` / `verify` / `complete`），解锁并恢复至 `executing` 阶段后再重试，切勿盲目重复失败操作。
-   - **终局交付自检**：在编辑修改代码文件后，必须通过 `read_file` 或质量检查工具核对修改结果，或调用 `reflect(strategy="complete", ...)` 完成交付自检后再输出最终总结。
+### 自主规划与反思工具规范（Plan-Execute-Reflect）
+当工具声明中包含 `update_plan` 与 `reflect` 时，由你自主判断是否需要使用计划与反思能力：
+1. **自主判断是否创建计划**：
+   - 简单问答、单步读写或明确的小改动，可以直接执行并回复，不必强行拆解计划。
+   - 面对多步骤、跨文件修改或复杂排查任务，推荐先用只读工具探索上下文，再调用 `update_plan(action="create", goal=..., steps=[...])` 明确步骤，并在推进中及时用 `update_plan(action="update_step", ...)` 更新进度或 `replan` 动态调整。
+2. **故障反思与交付自检**：
+   - 当工具调用失败或执行偏离预期时，可调用 `reflect(observation=..., diagnosis=..., strategy=..., next_action=...)` 整理根因后再修正；若运行环境处于严格三阶段模式并临时锁定写工具，则按 `<runtime-notice>` 提示完成计划创建或反思解锁。
+   - 修改代码文件后，应主动通过 `read_file` 或质量检查工具核对结果再给出最终总结。
 
 ### 运行通知规范（Runtime Notice）
 运行过程中，本系统提示词保持固定不变；程序通过对话历史中的 `<runtime-notice>...</runtime-notice>` 块向你同步运行时状态变化：

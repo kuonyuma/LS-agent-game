@@ -8,6 +8,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from agent_service.config.settings import resolve_api_key, settings
 from agent_service.kernel.dispatch.base import Tool, ToolResult
 
 OutputFormat = Literal["markdown", "text", "html"]
@@ -18,6 +19,7 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_TIMEOUT_SECONDS = 120.0
 DEFAULT_MAX_CHARS = 8000
 MAX_ALLOWED_CHARS = 25000
+DEEPSEEK_FETCH_ENDPOINT = "https://api.deepseek.com/v1/tools/fetch"
 
 _BLOCKED_HOSTNAMES = frozenset(
     {
@@ -94,6 +96,36 @@ class FetchedPageResponse:
 
 
 PageFetcher = Callable[[str, OutputFormat, float], Awaitable[FetchedPageResponse]]
+DeepSeekPageFetcher = Callable[[str, float, str], Awaitable[dict[str, Any]]]
+
+
+async def _default_deepseek_page_fetcher(
+    url: str,
+    timeout_seconds: float,
+    api_key: str,
+) -> dict[str, Any]:
+    """调用 DeepSeek 官方 Fetch API（POST /v1/tools/fetch）返回结构化 Markdown。"""
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        response = await client.post(
+            DEEPSEEK_FETCH_ENDPOINT,
+            headers=headers,
+            json={"url": url},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else {}
+
+
+def _resolve_deepseek_key(explicit_key: str | None) -> str:
+    provider = settings.providers.get("deepseek")
+    if provider is not None:
+        return resolve_api_key(provider, explicit_key)
+    return (explicit_key or "").strip()
 
 
 def validate_public_http_url(raw_url: str) -> str:
@@ -440,14 +472,23 @@ class FetchWebPageTool(Tool):
     }
     read_only = True
 
-    def __init__(self, fetcher: PageFetcher | None = None) -> None:
-        """自由指定抓取网页的函数"""
+    def __init__(
+        self,
+        fetcher: PageFetcher | None = None,
+        *,
+        deepseek_api_key: str | None = None,
+        deepseek_fetcher: DeepSeekPageFetcher | None = None,
+    ) -> None:
+        """自由指定抓取网页的函数；默认在配置 DeepSeek Key 时优先走 DeepSeek Fetch API。"""
+        self._custom_fetcher = fetcher
         self._fetcher = fetcher or _default_page_fetcher
+        self._deepseek_api_key = deepseek_api_key
+        self._deepseek_fetcher = deepseek_fetcher or _default_deepseek_page_fetcher
 
     async def run(self, parameter: dict[str, Any]) -> ToolResult:
         raw_url = parameter.get("url", "")
         try:
-            url = validate_public_http_url(raw_url) # 防止SSRF
+            url = validate_public_http_url(raw_url)  # 防止SSRF
         except ValueError as exc:
             return ToolResult(content=f"抓取网页被拒绝：{exc}", is_error=True)
 
@@ -484,11 +525,45 @@ class FetchWebPageTool(Tool):
                 is_error=True,
             )
         timeout_seconds = float(
-            max(1.0, min(float(raw_timeout), MAX_TIMEOUT_SECONDS)) # 默认最大120s
+            max(1.0, min(float(raw_timeout), MAX_TIMEOUT_SECONDS))
         )
 
+        # 未注入自定义 fetcher 且输出格式为 markdown 时，优先使用 DeepSeek Fetch API
+        if self._custom_fetcher is None and output_format == "markdown":
+            ds_key = _resolve_deepseek_key(self._deepseek_api_key)
+            if ds_key:
+                try:
+                    page = await self._deepseek_fetcher(url, timeout_seconds, ds_key)
+                    md_content = str(page.get("content") or "").strip()
+                    if md_content:
+                        page_title = str(page.get("title") or "").strip()
+                        total_chars = len(md_content)
+                        truncated = False
+                        if total_chars > max_chars:
+                            md_content = md_content[:max_chars]
+                            truncated = True
+                        header_lines = [f"### 🌐 网页内容：`{url}`"]
+                        if page_title:
+                            header_lines.append(f"- **标题**：{page_title}")
+                        header_lines.append(
+                            "- **来源**：`DeepSeek Fetch API` | **格式**：`markdown`"
+                        )
+                        header_lines.append("")
+                        header_lines.append(md_content)
+                        if truncated:
+                            header_lines.append(
+                                f"\n\n...[网页内容已按 max_chars={max_chars} 截断，原文共 {total_chars} 字符]"
+                            )
+                        return ToolResult(
+                            content="\n".join(header_lines),
+                            is_error=False,
+                        )
+                except (httpx.HTTPError, OSError, ValueError):
+                    # DeepSeek Fetch 失败时静默回退到本地直连抓取
+                    pass
+
         try:
-            fetched = await self._fetcher(url, output_format, timeout_seconds)  # fetched就是定向抓取网页的结果
+            fetched = await self._fetcher(url, output_format, timeout_seconds)
         except ValueError as exc:
             return ToolResult(content=f"抓取网页被拒绝：{exc}", is_error=True)
         except httpx.TimeoutException:

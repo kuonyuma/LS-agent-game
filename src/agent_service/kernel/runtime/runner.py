@@ -29,7 +29,7 @@ class AgentRunner:
         max_tokens: int = 4096,
         tools: list[types.Tool] | None = None,
         allowed_tool_names: frozenset[str] | None = None,
-        max_turns: int = 10,
+        max_turns: int | None = None,
         plan_and_execute: bool = True,
     ) -> None:
         self.model = model

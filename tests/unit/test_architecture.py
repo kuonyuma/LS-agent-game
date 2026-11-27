@@ -1,8 +1,7 @@
-"""静态依赖边界：内核不依赖外部实现，已删除的服务链路不能悄悄恢复。"""
+"""静态依赖边界：坚守内核五模块纯净度，禁止内核反向依赖外核、Web 框架或厂商客户端。"""
 
 import ast
 import importlib.util
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +40,11 @@ def test_kernel_never_imports_outer_implementations_or_configuration():
         "agent_service.config",
         "agent_service.bootstrap",
         "agent_service.main",
+        "agent_service.web_main",
+        "fastapi",
+        "starlette",
+        "uvicorn",
+        "openai",
     )
     violations = []
     for path in (PACKAGE / "kernel").rglob("*.py"):
@@ -53,7 +57,7 @@ def test_kernel_never_imports_outer_implementations_or_configuration():
     assert violations == []
 
 
-def test_old_source_imports_and_web_service_directories_are_gone():
+def test_legacy_flat_package_directories_remain_removed():
     removed = {"core", "client", "tools", "ui", "safety", "api", "db", "services"}
     for name in removed:
         assert not (PACKAGE / name).exists()
@@ -65,19 +69,3 @@ def test_old_source_imports_and_web_service_directories_are_gone():
                 and segments[0] == "agent_service"
                 and segments[1] in removed
             ), f"{path}: {module}"
-    for artifact in ("migrations", "compose.yaml", "Dockerfile", "alembic.ini"):
-        assert not (ROOT / artifact).exists()
-
-
-def test_dependency_manifest_contains_no_web_service_stack():
-    manifest = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    removed = {
-        "alembic",
-        "asyncmy",
-        "fastapi",
-        "sqlalchemy",
-        "pydantic-settings",
-        "uvicorn",
-    }
-    for dependency in manifest["project"]["dependencies"]:
-        assert not any(dependency.lower().startswith(name) for name in removed)
