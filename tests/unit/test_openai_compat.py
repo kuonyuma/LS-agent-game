@@ -1,4 +1,4 @@
-"""DeepSeek / Kimi OpenAI 兼容协议适配器的单元测试。"""
+"""DeepSeek / Kimi / GLM / Qwen OpenAI 兼容协议适配器的单元测试。"""
 
 from types import SimpleNamespace
 from typing import Any, cast
@@ -23,6 +23,14 @@ def _deepseek_provider() -> ProviderConfig:
 
 def _kimi_provider() -> ProviderConfig:
     return settings.providers["kimi"]
+
+
+def _glm_provider() -> ProviderConfig:
+    return settings.providers["glm"]
+
+
+def _qwen_provider() -> ProviderConfig:
+    return settings.providers["qwen"]
 
 
 def test_tools_to_openai_normalizes_nested_schema_types():
@@ -416,3 +424,406 @@ async def test_openai_compat_reviewers_match_provider_json_modes():
     assert kimi_res.category == "violence"
     assert kimi_kwargs["response_format"]["type"] == "json_schema"
     assert kimi_kwargs["extra_body"] == {"reasoning_effort": "low"}
+
+
+@pytest.mark.asyncio
+async def test_glm_stream_uses_preserved_thinking_omits_stream_options_and_never_disables():
+    captured_calls: list[dict[str, Any]] = []
+
+    class FakeStream:
+        def __aiter__(self):
+            async def _gen():
+                yield SimpleNamespace(
+                    usage=SimpleNamespace(
+                        prompt_tokens=180,
+                        completion_tokens=42,
+                        prompt_tokens_details=SimpleNamespace(cached_tokens=64),
+                    ),
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            delta=SimpleNamespace(
+                                reasoning_content="智谱链式推理",
+                                content="GLM 回复正文",
+                                tool_calls=None,
+                            ),
+                        )
+                    ],
+                )
+
+            return _gen()
+
+    async def fake_create(**kwargs: Any):
+        captured_calls.append(dict(kwargs))
+        return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    model_max = OpenAICompatibleModel(
+        _glm_provider(),
+        model_name="glm-5.3",
+        thinking_enabled=True,
+        reasoning_effort="max",
+        client=cast(Any, fake_client),
+    )
+    events = [
+        ev
+        async for ev in model_max.stream(
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="你好")])
+            ],
+            system_prompt="系统",
+            max_tokens=2048,
+        )
+    ]
+
+    assert captured_calls[0]["model"] == "glm-5.3"
+    assert "stream_options" not in captured_calls[0]
+    assert captured_calls[0]["extra_body"] == {
+        "thinking": {"type": "enabled", "clear_thinking": False},
+        "reasoning_effort": "max",
+    }
+    done = events[-1].result
+    assert done is not None
+    assert done.contents == "GLM 回复正文"
+    assert done.usage == {"input_len": 180, "output_len": 42, "cached_len": 64}
+    assert any(p.thought is True and p.text == "智谱链式推理" for p in done.raw_parts)
+
+    # 即使传入 thinking_enabled=False 或不兼容档位 medium，GLM-5.3 也绝不下发 disabled 或 medium
+    model_off = OpenAICompatibleModel(
+        _glm_provider(),
+        model_name="glm-5.3-flash",
+        thinking_enabled=False,
+        reasoning_effort="off",
+        client=cast(Any, fake_client),
+    )
+    _ = [
+        ev
+        async for ev in model_off.stream(
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="测试")])
+            ],
+            system_prompt="系统",
+            max_tokens=512,
+        )
+    ]
+    assert captured_calls[1]["extra_body"] == {
+        "thinking": {"type": "enabled", "clear_thinking": False},
+        "reasoning_effort": "low",
+    }
+
+    model_medium = OpenAICompatibleModel(
+        _glm_provider(),
+        model_name="glm-5.4",
+        thinking_enabled=True,
+        reasoning_effort="medium",
+        client=cast(Any, fake_client),
+    )
+    _ = [
+        ev
+        async for ev in model_medium.stream(
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="测试")])
+            ],
+            system_prompt="系统",
+            max_tokens=512,
+        )
+    ]
+    assert captured_calls[2]["extra_body"] == {
+        "thinking": {"type": "enabled", "clear_thinking": False},
+        "reasoning_effort": "high",
+    }
+
+
+@pytest.mark.asyncio
+async def test_qwen_stream_uses_enable_thinking_preserves_medium_and_xhigh_and_handles_off():
+    captured_calls: list[dict[str, Any]] = []
+
+    class FakeStream:
+        def __aiter__(self):
+            async def _gen():
+                yield SimpleNamespace(
+                    usage=SimpleNamespace(
+                        prompt_tokens=220,
+                        completion_tokens=55,
+                        prompt_tokens_details=SimpleNamespace(cached_tokens=96),
+                    ),
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            delta=SimpleNamespace(
+                                reasoning_content="通义深度思考",
+                                content="Qwen 回复正文",
+                                tool_calls=None,
+                            ),
+                        )
+                    ],
+                )
+
+            return _gen()
+
+    async def fake_create(**kwargs: Any):
+        captured_calls.append(dict(kwargs))
+        return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    model_xhigh = OpenAICompatibleModel(
+        _qwen_provider(),
+        model_name="qwen4-max",
+        thinking_enabled=True,
+        reasoning_effort="xhigh",
+        client=cast(Any, fake_client),
+    )
+    events = [
+        ev
+        async for ev in model_xhigh.stream(
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="规划架构")])
+            ],
+            system_prompt="系统",
+            max_tokens=4096,
+        )
+    ]
+    assert captured_calls[0]["model"] == "qwen4-max"
+    assert captured_calls[0]["stream_options"] == {"include_usage": True}
+    assert captured_calls[0]["extra_body"] == {
+        "enable_thinking": True,
+        "reasoning_effort": "xhigh",
+    }
+    done = events[-1].result
+    assert done is not None
+    assert done.contents == "Qwen 回复正文"
+    assert done.usage == {"input_len": 220, "output_len": 55, "cached_len": 96}
+
+    model_med = OpenAICompatibleModel(
+        _qwen_provider(),
+        model_name="qwen3.8-flash",
+        thinking_enabled=True,
+        reasoning_effort="medium",
+        client=cast(Any, fake_client),
+    )
+    _ = [
+        ev
+        async for ev in model_med.stream(
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="快速分析")])
+            ],
+            system_prompt="系统",
+            max_tokens=1024,
+        )
+    ]
+    assert captured_calls[1]["extra_body"] == {
+        "enable_thinking": True,
+        "reasoning_effort": "medium",
+    }
+
+    model_off = OpenAICompatibleModel(
+        _qwen_provider(),
+        model_name="qwen3.7-plus",
+        thinking_enabled=False,
+        reasoning_effort="off",
+        client=cast(Any, fake_client),
+    )
+    _ = [
+        ev
+        async for ev in model_off.stream(
+            contents=[
+                types.Content(role="user", parts=[types.Part.from_text(text="直出答案")])
+            ],
+            system_prompt="系统",
+            max_tokens=1024,
+        )
+    ]
+    assert captured_calls[2]["extra_body"] == {"enable_thinking": False}
+
+
+@pytest.mark.asyncio
+async def test_glm_and_qwen_missing_keys_raise_configuration_error(monkeypatch):
+    monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+
+    glm_model = OpenAICompatibleModel(_glm_provider())
+    with pytest.raises(ConfigurationError, match="ZHIPU_API_KEY"):
+        async for _ in glm_model.stream(contents=[], system_prompt="sys", max_tokens=256):
+            pass
+
+    qwen_model = OpenAICompatibleModel(_qwen_provider())
+    with pytest.raises(ConfigurationError, match="DASHSCOPE_API_KEY"):
+        async for _ in qwen_model.stream(contents=[], system_prompt="sys", max_tokens=256):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_glm_and_qwen_reviewers_use_provider_specific_thinking_controls():
+    glm_kwargs: dict[str, Any] = {}
+    qwen_kwargs: dict[str, Any] = {}
+
+    async def fake_glm_create(**kwargs: Any):
+        glm_kwargs.update(kwargs)
+        return SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=24, completion_tokens=12),
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(
+                        content='{"verdict": "allow", "category": "none"}'
+                    ),
+                )
+            ],
+        )
+
+    async def fake_qwen_create(**kwargs: Any):
+        qwen_kwargs.update(kwargs)
+        return SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=28, completion_tokens=9),
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(
+                        content='{"verdict": "block", "category": "violence"}'
+                    ),
+                )
+            ],
+        )
+
+    glm_reviewer = OpenAICompatibleTextReviewer(
+        _glm_provider(),
+        client=cast(
+            Any,
+            SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(create=fake_glm_create))
+            ),
+        ),
+    )
+    glm_res = await glm_reviewer.check("正常代码解释")
+    assert glm_res.verdict == "allow"
+    assert glm_res.category == "none"
+    assert glm_kwargs["response_format"] == {"type": "json_object"}
+    assert glm_kwargs["max_tokens"] == 1024
+    assert glm_kwargs["extra_body"] == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "low",
+    }
+
+    qwen_reviewer = OpenAICompatibleTextReviewer(
+        _qwen_provider(),
+        client=cast(
+            Any,
+            SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(create=fake_qwen_create))
+            ),
+        ),
+    )
+    qwen_res = await qwen_reviewer.check("测试违规文本")
+    assert qwen_res.verdict == "block"
+    assert qwen_res.category == "violence"
+    assert qwen_kwargs["response_format"]["type"] == "json_schema"
+    assert qwen_kwargs["max_tokens"] == 256
+    assert qwen_kwargs["extra_body"] == {"enable_thinking": False}
+
+
+@pytest.mark.asyncio
+async def test_glm_4_7_flash_toggles_thinking_without_reasoning_effort():
+    captured_calls: list[dict[str, Any]] = []
+
+    class FakeStream:
+        def __aiter__(self):
+            async def _gen():
+                yield SimpleNamespace(
+                    usage=SimpleNamespace(prompt_tokens=16, completion_tokens=8),
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            delta=SimpleNamespace(
+                                reasoning_content=None,
+                                content="免费 GLM 回复",
+                                tool_calls=None,
+                            ),
+                        )
+                    ],
+                )
+
+            return _gen()
+
+    async def fake_create(**kwargs: Any):
+        captured_calls.append(dict(kwargs))
+        return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))
+    )
+
+    model_on = OpenAICompatibleModel(
+        _glm_provider(),
+        model_name="glm-4.7-flash",
+        thinking_enabled=True,
+        reasoning_effort="high",
+        client=cast(Any, fake_client),
+    )
+    _ = [
+        ev
+        async for ev in model_on.stream(
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+            system_prompt="系统",
+            max_tokens=1024,
+        )
+    ]
+    assert captured_calls[0]["extra_body"] == {
+        "thinking": {"type": "enabled", "clear_thinking": False}
+    }
+    assert "reasoning_effort" not in captured_calls[0]["extra_body"]
+
+    model_off = OpenAICompatibleModel(
+        _glm_provider(),
+        model_name="glm-4.7-flash",
+        thinking_enabled=False,
+        reasoning_effort="off",
+        client=cast(Any, fake_client),
+    )
+    _ = [
+        ev
+        async for ev in model_off.stream(
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text="hi")])],
+            system_prompt="系统",
+            max_tokens=1024,
+        )
+    ]
+    assert captured_calls[1]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+    reviewer_kwargs: dict[str, Any] = {}
+
+    async def fake_review_create(**kwargs: Any):
+        reviewer_kwargs.update(kwargs)
+        return SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(
+                        content='{"verdict": "allow", "category": "none"}'
+                    ),
+                )
+            ],
+        )
+
+    reviewer = OpenAICompatibleTextReviewer(
+        _glm_provider(),
+        model_name="glm-4.7-flash",
+        client=cast(
+            Any,
+            SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(create=fake_review_create)
+                )
+            ),
+        ),
+    )
+    res = await reviewer.check("测试内容")
+    assert res.verdict == "allow"
+    assert reviewer_kwargs["max_tokens"] == 256
+    assert reviewer_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}

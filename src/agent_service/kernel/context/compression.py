@@ -71,7 +71,8 @@ async def compress_context(
         "3. 当前遇到的核心报错或最新状态\n"
         "4. 前序执行计划（Plan）的目标、已完成步骤与结论（如有）\n"
         "5. 关键反思结论（Reflection）：已诊断的故障根因与已排除的错误方案（如有）\n"
-        "字数控制在 200 字以内，保持精炼。"
+        "6. 已核验的关键学术论文与证据（如有：原样保留 paper_id / arXiv ID / DOI、会议年份与核心结论，切勿丢失或改写标识）\n"
+        "字数控制在 300 字以内，保持精炼准确。"
     )
 
     transcript = _format_contents_for_summary(old_contents)

@@ -1,17 +1,105 @@
 """FetchWebPageTool 的单元测试。"""
 
+import asyncio
+import socket
+from collections.abc import AsyncIterator
+
 import httpx
 import pytest
 
+from agent_service.adapters.tools import fetch_web_page
 from agent_service.adapters.tools.fetch_web_page import (
     FetchedPageResponse,
     FetchWebPageTool,
     OutputFormat,
     build_accept_header,
     convert_html_to_markdown,
+    extract_images_from_html,
     extract_text_from_html,
     validate_public_http_url,
 )
+
+
+class PageBody(httpx.AsyncByteStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"<h1>Public page</h1><p>Readable text</p>"
+
+
+def test_html_metadata_and_navigation_void_tags_preserve_article():
+    page = """
+    <html><head><meta charset="utf-8"><link rel="stylesheet" href="theme.css">
+    <title>Article title</title></head><body>
+    <nav><img src="menu.png"><br><span>Navigation only</span></nav>
+    <main><h1>Article title</h1><p>Useful article text.</p>
+    <img src="article.jpg" width="800" height="500"></main>
+    </body></html>
+    """
+    title, markdown = convert_html_to_markdown(page)
+    text = extract_text_from_html(page)
+    images = extract_images_from_html(page, "https://articles.example/page")
+    assert title == "Article title"
+    for body in (markdown, text):
+        assert "Useful article text." in body
+        assert "Navigation only" not in body
+    assert [image.url for image in images] == ["https://articles.example/article.jpg"]
+
+
+@pytest.mark.parametrize("can_read_destination", [True, False])
+@pytest.mark.asyncio
+async def test_direct_fetch_checks_each_destination_before_connecting(monkeypatch, can_read_destination):
+    requested_hosts: list[str] = []
+    resolved_hosts: list[str] = []
+
+    async def resolve(host: str, port: int, **_: object):
+        resolved_hosts.append(host)
+        result = "93.184.216.34" if host == "start.example" or can_read_destination else "192.0.2.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (result, port))]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        host = request.headers["host"]
+        requested_hosts.append(host)
+        assert request.url.host == "93.184.216.34"
+        assert request.extensions["sni_hostname"] == host
+        if host == "start.example":
+            return httpx.Response(302, headers={"Location": "https://destination.example/article"})
+        return httpx.Response(200, headers={"Content-Type": "text/html"}, stream=PageBody())
+
+    async def unused_provider(*_: object):
+        pytest.fail("共享抓取不应调用 DeepSeek")
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)
+    )
+    tool = FetchWebPageTool(
+        allow_deepseek=False, deepseek_api_key="test-key", deepseek_fetcher=unused_provider
+    )
+    outcome = await tool.run({"url": "https://start.example/article"})
+    assert resolved_hosts == ["start.example", "destination.example"]
+    if can_read_destination:
+        assert requested_hosts == resolved_hosts
+        assert not outcome.is_error
+        assert "Readable text" in outcome.content
+    else:
+        assert requested_hosts == ["start.example"]
+        assert outcome.is_error
+        assert "公网单播" in outcome.content
+
+
+@pytest.mark.asyncio
+async def test_direct_fetch_limits_body_without_content_length(monkeypatch):
+    async def resolve(_: httpx.URL) -> str:
+        return "93.184.216.34"
+
+    client = httpx.AsyncClient
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=PageBody()))
+    monkeypatch.setattr(fetch_web_page, "_public_ip_for", resolve)
+    monkeypatch.setattr(fetch_web_page, "MAX_RESPONSE_BYTES", 20)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client(transport=transport, **kwargs))
+    result = await FetchWebPageTool(allow_deepseek=False).run({"url": "https://start.example/article"})
+    assert result.is_error
+    assert "响应体积过大" in result.content
 
 SAMPLE_ARTICLE_HTML = """
 <!DOCTYPE html>
@@ -213,3 +301,52 @@ async def test_fetch_web_page_uses_deepseek_fetch_api_for_markdown():
     assert "DeepSeek Fetch API" in result.content
     assert "DeepSeek Fetch 文章标题" in result.content
     assert "Markdown 正文" in result.content
+
+
+def test_extract_images_from_html_filters_noise_and_resolves_relative_urls():
+    html = """
+    <html><body>
+      <nav><img src="/logo.png" width="400" height="200" alt="Nav Logo" /></nav>
+      <main>
+        <img src="/assets/pipeline-map.png" width="900" height="600" alt="德国输油管道地图" />
+        <img data-src="https://cdn.example.org/tanker.webp" alt="大型油轮" />
+        <img src="/assets/tiny-icon.png" width="32" height="32" alt="Tiny" />
+        <img src="data:image/png;base64,AAAA" alt="Inline" />
+        <img src="http://127.0.0.1/private.png" alt="Local" />
+      </main>
+    </body></html>
+    """
+    images = extract_images_from_html(html, base_url="https://energy.example.org/report")
+    assert [img.url for img in images] == [
+        "https://energy.example.org/assets/pipeline-map.png",
+        "https://cdn.example.org/tanker.webp",
+    ]
+    assert images[0].alt == "德国输油管道地图"
+
+
+@pytest.mark.asyncio
+async def test_fetch_web_page_appends_verified_images_section():
+    html = """
+    <html><head><title>Energy Report</title></head><body>
+      <main>
+        <h1>Germany Oil Transport</h1>
+        <p>Crude oil arrives via ports and pipelines.</p>
+        <img src="/maps/refineries.png" width="1024" height="768" alt="炼油厂管网图" />
+      </main>
+    </body></html>
+    """
+
+    async def fake_fetcher(url: str, output_format: OutputFormat, timeout_seconds: float):
+        del output_format, timeout_seconds
+        return FetchedPageResponse(
+            url=url,
+            status_code=200,
+            content_type="text/html; charset=utf-8",
+            text=html,
+        )
+
+    tool = FetchWebPageTool(fetcher=fake_fetcher)
+    result = await tool.run({"url": "https://energy.example.org/germany"})
+    assert not result.is_error
+    assert "页面可引用配图" in result.content
+    assert "https://energy.example.org/maps/refineries.png" in result.content

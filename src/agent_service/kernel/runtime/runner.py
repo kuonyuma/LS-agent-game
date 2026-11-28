@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import aclosing
 from types import TracebackType
 from typing import Self
@@ -54,12 +54,17 @@ class AgentRunner:
         user_query: str,
         permission_check: PermissionCheck | None = None,
         run_control: RunControl | None = None,
+        *,
+        user_context_parts: Sequence[types.Part] = (),
     ) -> AsyncGenerator[LoopEvent]:
         """基于历史运行一轮，并通过最终事件显式返回新历史。"""
 
         next_history = [
             *history,
-            types.Content(role="user", parts=[types.Part.from_text(text=user_query)]),
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=user_query), *user_context_parts],
+            ),
         ]
         try:
             if run_control is not None:

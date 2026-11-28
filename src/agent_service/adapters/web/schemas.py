@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from agent_service.adapters.dashscope.image_client import ImageAspectRatio
 from agent_service.adapters.openai_compat.model import ReasoningEffort
 from agent_service.adapters.storage.session_store import SessionMode
 
@@ -32,6 +33,10 @@ class RunAttachment(BaseModel):
     text_content: str | None = None
 
 
+class ImageOptions(BaseModel):
+    aspect_ratio: ImageAspectRatio | None = None
+
+
 class RunTurnRequest(BaseModel):
     query: str = Field(min_length=1, max_length=32000)
     provider: str | None = None
@@ -39,6 +44,8 @@ class RunTurnRequest(BaseModel):
     workspace: str | None = None
     api_key: str | None = None
     search_api_key: str | None = None
+    serper_api_key: str | None = None
+    tavily_api_key: str | None = None
     embedding_api_key: str | None = None
     knowledge_base_ids: list[str] | None = None
     mode: SessionMode | None = None
@@ -47,8 +54,10 @@ class RunTurnRequest(BaseModel):
     safety_enabled: bool = True
     plan_and_execute: bool = False
     max_tokens: int | None = Field(default=None, ge=256, le=1048576)
+    timezone: str | None = Field(default=None, min_length=1, max_length=100)
     system_prompt_override: str | None = None
     attachments: list[RunAttachment] = Field(default_factory=list)
+    image_options: ImageOptions | None = None
 
 
 class CreateKnowledgeBaseRequest(BaseModel):

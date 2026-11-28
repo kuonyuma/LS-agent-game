@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "../../theme";
+import {
+  createDeepSpaceStars,
+  createGalaxyRingStars,
+  getCosmicSpriteAtlas,
+  stampCosmicStar,
+} from "../cosmicStarfield";
 import {
   CARD_BUFFER_H,
   CARD_BUFFER_W,
+  DEFAULT_DARK_STUDIO,
   DEFAULT_STUDIO,
   TAU,
   VENDORS,
@@ -11,9 +19,10 @@ import {
   easeInOutQuart,
   easeOutCubic,
   easeOutQuint,
-  easeSpringOut,
   lerp,
   mixRgb,
+  resolveVendorPrimary,
+  resolveVendorTrail,
   rgba,
   smoothstep,
   type RgbColor,
@@ -27,12 +36,10 @@ interface OpeningConstellationIntroProps {
 }
 
 const COUNT = VENDORS.length;
-const ACT1_END = 2.55;
-const SLOT_DUR = 1.68;
-const ACT2_END = ACT1_END + COUNT * SLOT_DUR; // 17.67s
-const REFORM_END = ACT2_END + 0.9; // 18.57s
-const CONVERGE_END = REFORM_END + 1.28; // 19.85s
-const HANDOFF_END = CONVERGE_END + 0.85; // 20.70s：平滑交接淡出进入真实工作台
+const ACT1_END = 2.15; // 9 张 3D 卡片逐一展开成环并丝滑巡礼
+const REFORM_END = ACT1_END + 0.72; // 2.87s：能量轨道点亮、星环蓄势加速
+const CONVERGE_END = REFORM_END + 1.12; // 3.99s：9 道螺线彗尾向中心汇合并爆发光核
+const HANDOFF_END = CONVERGE_END + 0.72; // 4.71s：平滑交接淡出进入真实工作台
 const SPEEDS = [0.7, 1.0, 1.4] as const;
 
 interface CardNodeState {
@@ -51,7 +58,6 @@ interface CardNodeState {
   scale: number;
   opacity: number;
   z: number;
-  focus: number;
   depthNorm: number;
 }
 
@@ -66,40 +72,31 @@ function createAmbientParticles() {
   }));
 }
 
-function arcLight(angle: number, center: number, width: number): number {
-  const d = Math.abs(angle - center);
-  const off = Math.min(d, TAU - d);
-  return Math.exp(-((off / width) ** 2));
-}
-
 export function OpeningConstellationIntro({
   open,
   onReveal,
   onFinish,
 }: OpeningConstellationIntroProps) {
+  const { isDark } = useTheme();
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const fieldCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cardsLayerRef = useRef<HTMLDivElement | null>(null);
-  const dotButtonsRef = useRef<(HTMLButtonElement | null)[]>([]);
 
   const [playing, setPlaying] = useState(true);
   const [speedIdx, setSpeedIdx] = useState(1);
 
   const playingRef = useRef(playing);
   const speedIdxRef = useRef(speedIdx);
+  const isDarkRef = useRef(isDark);
   const timelineRef = useRef(0);
   const onRevealRef = useRef(onReveal);
   const onFinishRef = useRef(onFinish);
 
   playingRef.current = playing;
   speedIdxRef.current = speedIdx;
+  isDarkRef.current = isDark;
   onRevealRef.current = onReveal;
   onFinishRef.current = onFinish;
-
-  const jumpToVendor = (index: number) => {
-    timelineRef.current = ACT1_END + index * SLOT_DUR + 0.32;
-    setPlaying(true);
-  };
 
   const replay = () => {
     timelineRef.current = 0;
@@ -121,6 +118,9 @@ export function OpeningConstellationIntro({
     if (!overlay || !fieldCanvas || !cardsLayer || !fieldCtx) return;
 
     const particles = createAmbientParticles();
+    const deepStars = createDeepSpaceStars(130, 88421);
+    const galaxyStars = createGalaxyRingStars(920, 99123);
+    const starAtlas = getCosmicSpriteAtlas();
     const pointer = { x: 0, y: 0 };
     const follow = { x: 0, y: 0 };
 
@@ -134,13 +134,14 @@ export function OpeningConstellationIntro({
     let finished = false;
     timelineRef.current = 0;
 
-    let curBgCenter: RgbColor = [...DEFAULT_STUDIO.bgCenter];
-    let curBgEdge: RgbColor = [...DEFAULT_STUDIO.bgEdge];
-    let curHaloA: RgbColor = [...DEFAULT_STUDIO.haloA];
-    let curHaloB: RgbColor = [...DEFAULT_STUDIO.haloB];
-    let curHaloAlpha = DEFAULT_STUDIO.haloAlpha;
-    let curTint: RgbColor = [124, 58, 237];
-    let curAccent: RgbColor = [216, 55, 126];
+    const initialStudio = isDarkRef.current ? DEFAULT_DARK_STUDIO : DEFAULT_STUDIO;
+    let curBgCenter: RgbColor = [...initialStudio.bgCenter];
+    let curBgEdge: RgbColor = [...initialStudio.bgEdge];
+    let curHaloA: RgbColor = [...initialStudio.haloA];
+    let curHaloB: RgbColor = [...initialStudio.haloB];
+    let curHaloAlpha = initialStudio.haloAlpha;
+    let curTint: RgbColor = isDarkRef.current ? [138, 122, 250] : [124, 58, 237];
+    let curAccent: RgbColor = isDarkRef.current ? [242, 178, 162] : [216, 55, 126];
 
     // 初始化 9 张固定高清缓冲的 3D 卡片
     cardsLayer.innerHTML = "";
@@ -161,10 +162,8 @@ export function OpeningConstellationIntro({
 
       el.appendChild(cv);
       el.appendChild(sheen);
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        jumpToVendor(index);
-      });
+      el.style.pointerEvents = "none";
+      el.style.cursor = "default";
       cardsLayer.appendChild(el);
 
       cardNodes.push({
@@ -183,7 +182,6 @@ export function OpeningConstellationIntro({
         scale: 1,
         opacity: 0,
         z: 0,
-        focus: 0,
         depthNorm: 0.5,
       });
     }
@@ -253,65 +251,40 @@ export function OpeningConstellationIntro({
       follow.x += (pointer.x - follow.x) * easeFollow;
       follow.y += (pointer.y - follow.y) * easeFollow;
 
-      // 编排阶段计算
+      // 编排阶段计算（精简去除了逐模型单独特写，直接由 9 卡展开成环 → 蓄势 → 9 彗尾汇合进入工作台）
       const assembleP = clamp(T / ACT1_END);
-      const reformP = smoothstep(ACT2_END, REFORM_END, T);
+      const reformP = smoothstep(ACT1_END, REFORM_END, T);
       const convergeP = smoothstep(REFORM_END, CONVERGE_END, T);
       const handoffP = smoothstep(CONVERGE_END, HANDOFF_END, T);
 
       const baseStep = TAU / COUNT;
-      let ringYaw = Math.PI / 2;
-      let activeIndex = -1;
-      let activeSlotT = 0;
-      let activeFocusStrength = 0;
+      const ringYaw =
+        Math.PI / 2 +
+        0.52 -
+        easeInOutCubic(assembleP) * 0.52 -
+        reformP * 0.78 -
+        Math.pow(convergeP, 1.75) * 4.6;
 
-      if (T < ACT1_END) {
-        ringYaw = Math.PI / 2 - 0.42 + easeInOutCubic(assembleP) * 0.42;
-      } else if (T < ACT2_END) {
-        const elapsed = T - ACT1_END;
-        const slotIdx = Math.min(COUNT - 1, Math.floor(elapsed / SLOT_DUR));
-        const local = (elapsed - slotIdx * SLOT_DUR) / SLOT_DUR;
-        activeIndex = slotIdx;
-        activeSlotT = local;
-
-        const prevYaw = Math.PI / 2 - Math.max(0, slotIdx - 1) * baseStep;
-        const targetYaw = Math.PI / 2 - slotIdx * baseStep;
-        const turnT = slotIdx === 0 ? 1 : easeInOutQuart(clamp(local / 0.25));
-        ringYaw = lerp(prevYaw, targetYaw, turnT);
-
-        const enterSpring = easeSpringOut(clamp(local / 0.23));
-        const exit = 1 - easeInOutCubic(clamp((local - 0.8) / 0.2));
-        activeFocusStrength = clamp(Math.min(enterSpring, exit), 0, 1.045);
-      } else {
-        const endBaseYaw = Math.PI / 2 - (COUNT - 1) * baseStep;
-        ringYaw = endBaseYaw - reformP * 0.85 - Math.pow(convergeP, 1.75) * 4.8;
-      }
-
-      const anyFocus = clamp(activeFocusStrength);
       const rollTilt =
         T < ACT1_END
           ? lerp(-0.24, -0.17, easeInOutCubic(assembleP))
-          : T < ACT2_END
-            ? lerp(-0.17, -0.09, anyFocus)
-            : lerp(-0.17, -0.16, Math.max(reformP, convergeP));
+          : lerp(-0.17, -0.16, Math.max(reformP, convergeP));
 
       const pitchTilt =
         T < ACT1_END
           ? lerp(0.36, 0.5, easeInOutCubic(assembleP))
-          : T < ACT2_END
-            ? lerp(0.5, 0.4, anyFocus)
-            : lerp(0.5, 0.55, convergeP);
+          : lerp(0.5, 0.55, convergeP);
 
-      const dynamicFov = lerp(1360, 960, anyFocus);
-      cardsLayer.style.perspective = `${Math.round(dynamicFov)}px`;
+      const dynamicFov = 1360;
+      cardsLayer.style.perspective = `${dynamicFov}px`;
 
-      // 平滑淡出交接给真实工作台（保留干净纯白光爆过渡）
+      // 平滑淡出交接给真实工作台
       overlay.style.opacity = (1 - easeInOutCubic(handoffP)).toFixed(4);
 
-      const spotlightIdx = activeFocusStrength > 0.08 ? activeIndex : -1;
-      const targetStudio = spotlightIdx >= 0 ? VENDORS[spotlightIdx].studio : DEFAULT_STUDIO;
-      const targetTint: RgbColor = spotlightIdx >= 0 ? VENDORS[spotlightIdx].primary : [124, 58, 237];
-      const targetAccent: RgbColor = spotlightIdx >= 0 ? VENDORS[spotlightIdx].accent : [216, 55, 126];
+      const dark = isDarkRef.current;
+      const targetStudio = dark ? DEFAULT_DARK_STUDIO : DEFAULT_STUDIO;
+      const targetTint: RgbColor = dark ? [138, 122, 250] : [124, 58, 237];
+      const targetAccent: RgbColor = dark ? [242, 178, 162] : [216, 55, 126];
 
       const gradeSpeed = 1 - Math.exp(-dt * 4.8);
       curBgCenter = mixRgb(curBgCenter, targetStudio.bgCenter, gradeSpeed);
@@ -321,17 +294,6 @@ export function OpeningConstellationIntro({
       curHaloAlpha = lerp(curHaloAlpha, targetStudio.haloAlpha, gradeSpeed);
       curTint = mixRgb(curTint, targetTint, gradeSpeed);
       curAccent = mixRgb(curAccent, targetAccent, gradeSpeed);
-
-      // 同步底部 9 个纯圆点高亮状态
-      for (let i = 0; i < COUNT; i++) {
-        const dot = dotButtonsRef.current[i];
-        if (!dot) continue;
-        const isAct = i === spotlightIdx;
-        dot.dataset.active = isAct ? "1" : "0";
-        dot.style.backgroundColor = isAct
-          ? rgba(VENDORS[i].primary, 0.94)
-          : "rgba(15, 23, 42, 0.26)";
-      }
 
       const cx = width * 0.5;
       const cy = height * 0.465;
@@ -350,12 +312,12 @@ export function OpeningConstellationIntro({
         let fanRatio = 1;
         if (T < ACT1_END) {
           if (i === 0) {
-            appear = easeOutCubic(clamp(T / 0.48));
-            fanRatio = easeInOutCubic(clamp((T - 0.28) / 0.98));
+            appear = easeOutCubic(clamp(T / 0.42));
+            fanRatio = easeInOutCubic(clamp((T - 0.22) / 0.84));
           } else {
-            const startT = 0.22 + (i - 1) * 0.155;
-            appear = easeOutCubic(clamp((T - startT) / 0.36));
-            fanRatio = easeOutQuint(clamp((T - startT) / 0.95));
+            const startT = 0.16 + (i - 1) * 0.125;
+            appear = easeOutCubic(clamp((T - startT) / 0.32));
+            fanRatio = easeOutQuint(clamp((T - startT) / 0.82));
           }
         }
 
@@ -364,12 +326,11 @@ export function OpeningConstellationIntro({
 
         const openRadiusScale =
           i === 0 && T < ACT1_END
-            ? lerp(0.18, 1, easeInOutCubic(clamp((T - 0.28) / 0.9)))
+            ? lerp(0.18, 1, easeInOutCubic(clamp((T - 0.22) / 0.78)))
             : lerp(0.76, 1, fanRatio);
 
         const collapseScale = 1 - easeInOutQuart(convergeP);
-        const otherFocusAmt = i !== activeIndex ? anyFocus : 0;
-        const rNow = ringRadius * openRadiusScale * collapseScale * (1 + otherFocusAmt * 0.17);
+        const rNow = ringRadius * openRadiusScale * collapseScale;
 
         const ox = Math.cos(worldAngle) * rNow;
         const oz = Math.sin(worldAngle) * rNow;
@@ -381,30 +342,11 @@ export function OpeningConstellationIntro({
         const py2 = ox * sinRoll + py1 * cosRoll;
 
         const persp = dynamicFov / (dynamicFov - pz1);
-        const orbitScreenX = cx + px2 * persp + follow.x * 16 * (1 + pz1 / 540);
-        const orbitScreenY = cy + py2 * persp + follow.y * 10 * (1 + pz1 / 540);
+        const x = cx + px2 * persp + follow.x * 16 * (1 + pz1 / 540);
+        const y = cy + py2 * persp + follow.y * 10 * (1 + pz1 / 540);
         const depthNorm = clamp((pz1 + ringRadius) / (2 * ringRadius));
         const orbitScale = persp * lerp(0.84, 1.05, depthNorm);
-
-        const orbitRotY = -Math.cos(worldAngle) * 30 * (1 - convergeP);
-        const orbitRotX = 8.5 * (1 - convergeP);
-        const orbitRotZ = ((rollTilt * 180) / Math.PI) * 0.42;
-
-        const focusRaw = i === activeIndex && activeFocusStrength > 0 ? activeFocusStrength : 0;
-        const focus = clamp(focusRaw);
-        const showcaseT = i === activeIndex ? activeSlotT : 0;
-
-        const focusTargetX = cx + follow.x * 10;
-        const focusTargetY = cy - 4 + follow.y * 8;
-        const focusTargetScale = Math.min((width * 0.58) / cardW, (height * 0.48) / cardH, 2.26);
-
-        const x = lerp(orbitScreenX, focusTargetX, focusRaw);
-        const y = lerp(orbitScreenY, focusTargetY, focusRaw);
-        const scale = lerp(
-          orbitScale * (0.45 + 0.55 * appear) * (1 - convergeP * 0.86),
-          focusTargetScale,
-          focusRaw,
-        );
+        const scale = orbitScale * (0.45 + 0.55 * appear) * (1 - convergeP * 0.86);
 
         if (node.prevX === null || node.prevY === null || dt <= 0.0001) {
           node.velX = 0;
@@ -419,25 +361,20 @@ export function OpeningConstellationIntro({
         node.prevX = x;
         node.prevY = y;
 
-        const rotY = lerp(orbitRotY, follow.x * 7, focus) + clamp(node.velX * 7.5, -14, 14);
-        const rotX = lerp(orbitRotX, -follow.y * 5.2, focus) + clamp(-node.velY * 5.5, -10, 10);
-        const rotZ = lerp(orbitRotZ, 0, focus) + clamp(node.velX * 2.2, -5, 5);
+        const rotY = -Math.cos(worldAngle) * 30 * (1 - convergeP) + clamp(node.velX * 7.5, -14, 14);
+        const rotX = 8.5 * (1 - convergeP) + clamp(-node.velY * 5.5, -10, 10);
+        const rotZ = ((rollTilt * 180) / Math.PI) * 0.42 + clamp(node.velX * 2.2, -5, 5);
 
         let opacity = appear * lerp(0.78, 1.0, depthNorm);
-        if (otherFocusAmt > 0) opacity *= lerp(1, 0.22, otherFocusAmt);
         if (convergeP > 0) opacity *= 1 - smoothstep(0.66, 0.98, convergeP);
-        if (focus > 0) opacity = Math.max(opacity, focus);
 
-        const depthBlur = (1 - depthNorm) * 0.65;
-        const blurPx =
-          focus > 0.05 ? (1 - focus) * depthBlur : depthBlur + otherFocusAmt * 3.1;
+        const blurPx = (1 - depthNorm) * 0.65;
 
         node.screenX = x;
         node.screenY = y;
         node.scale = scale;
         node.opacity = clamp(opacity);
-        node.z = focus > 0.1 ? 900 : pz1;
-        node.focus = focus;
+        node.z = pz1;
         node.depthNorm = depthNorm;
 
         const el = node.el;
@@ -445,7 +382,6 @@ export function OpeningConstellationIntro({
         el.style.height = `${cardH}px`;
         el.style.opacity = node.opacity.toFixed(4);
         el.style.zIndex = String(Math.round(node.z + 500));
-        el.style.pointerEvents = node.opacity > 0.12 ? "auto" : "none";
         el.style.filter = blurPx > 0.08 ? `blur(${blurPx.toFixed(2)}px)` : "none";
         el.style.transform =
           `translate3d(${(x - cardW / 2).toFixed(2)}px, ${(y - cardH / 2).toFixed(2)}px, 0) ` +
@@ -455,20 +391,9 @@ export function OpeningConstellationIntro({
         const sheenShiftX = clamp(-rotY * 2.1 + follow.x * 16, -68, 68);
         const sheenShiftY = clamp(-rotX * 1.6 + follow.y * 10, -40, 40);
         const angleGlint = Math.exp(-Math.pow((rotY + 8) / 22, 2));
-        const sheenAlpha = clamp(0.18 + angleGlint * 0.42 + focus * 0.18, 0.15, 0.78);
+        const sheenAlpha = clamp(0.18 + angleGlint * 0.42, 0.15, 0.68);
         node.sheen.style.transform = `translate3d(${sheenShiftX.toFixed(1)}%, ${sheenShiftY.toFixed(1)}%, 0)`;
         node.sheen.style.opacity = sheenAlpha.toFixed(3);
-
-        if (focus > 0.04) {
-          const pCol = node.vendor.primary;
-          el.style.boxShadow =
-            `0 1.5px 0 rgba(255,255,255,1) inset, ` +
-            `0 0 0 1px rgba(${pCol[0]},${pCol[1]},${pCol[2]},${(0.16 + focus * 0.18).toFixed(3)}), ` +
-            `0 40px 88px -24px rgba(15,23,42,${(0.18 + focus * 0.1).toFixed(3)}), ` +
-            `0 20px 52px -14px rgba(${pCol[0]},${pCol[1]},${pCol[2]},${(focus * 0.24).toFixed(3)})`;
-        } else {
-          el.style.boxShadow = "";
-        }
 
         if (node.opacity > 0.015) {
           const c = node.ctx;
@@ -481,8 +406,8 @@ export function OpeningConstellationIntro({
             0,
           );
           c.clearRect(0, 0, CARD_BUFFER_W, CARD_BUFFER_H);
-          drawCardAmbientBg(c, CARD_BUFFER_W, CARD_BUFFER_H, node.vendor, focus);
-          node.vendor.drawScene(c, CARD_BUFFER_W, CARD_BUFFER_H, ambientTime, focus, showcaseT);
+          drawCardAmbientBg(c, CARD_BUFFER_W, CARD_BUFFER_H, node.vendor, 0, dark);
+          node.vendor.drawScene(c, CARD_BUFFER_W, CARD_BUFFER_H, ambientTime, 0, 0.75, dark);
         }
       }
 
@@ -511,7 +436,7 @@ export function OpeningConstellationIntro({
         cy - height * 0.06,
         rA,
       );
-      gA.addColorStop(0, rgba(curHaloA, curHaloAlpha * (0.75 + anyFocus * 0.45)));
+      gA.addColorStop(0, rgba(curHaloA, curHaloAlpha * 0.78));
       gA.addColorStop(0.55, rgba(curHaloA, curHaloAlpha * 0.28));
       gA.addColorStop(1, rgba(curHaloA, 0));
       fieldCtx.fillStyle = gA;
@@ -525,15 +450,15 @@ export function OpeningConstellationIntro({
         cy + height * 0.12,
         rA * 0.85,
       );
-      gB.addColorStop(0, rgba(curHaloB, curHaloAlpha * (0.58 + anyFocus * 0.42)));
+      gB.addColorStop(0, rgba(curHaloB, curHaloAlpha * 0.6));
       gB.addColorStop(1, rgba(curHaloB, 0));
       fieldCtx.fillStyle = gB;
       fieldCtx.fillRect(0, 0, width, height);
 
       const trackAlpha =
-        (T < ACT1_END
+        T < ACT1_END
           ? smoothstep(0.12, 0.82, assembleP)
-          : 1 - smoothstep(0.2, 0.9, convergeP)) * lerp(1, 0.18, anyFocus);
+          : 1 - smoothstep(0.2, 0.9, convergeP);
       if (trackAlpha > 0.01) {
         fieldCtx.save();
         fieldCtx.translate(cx + follow.x * 10, cy + follow.y * 6);
@@ -541,7 +466,9 @@ export function OpeningConstellationIntro({
         const rx = ringRadius * (1 - easeInOutQuart(convergeP));
         const ry = rx * Math.sin(pitchTilt);
         if (rx > 8) {
-          fieldCtx.strokeStyle = `rgba(15, 23, 42, ${(0.095 * trackAlpha).toFixed(4)})`;
+          fieldCtx.strokeStyle = dark
+            ? `rgba(226, 232, 245, ${(0.12 * trackAlpha).toFixed(4)})`
+            : `rgba(15, 23, 42, ${(0.095 * trackAlpha).toFixed(4)})`;
           fieldCtx.lineWidth = 1.1;
           fieldCtx.beginPath();
           fieldCtx.ellipse(0, 0, rx, ry, 0, 0, TAU);
@@ -567,18 +494,24 @@ export function OpeningConstellationIntro({
       for (const n of cardNodes) {
         if (n.opacity < 0.06) continue;
         const cardBottomY = n.screenY + cardH * n.scale * 0.5;
-        const shY = cardBottomY + lerp(14, 24, n.depthNorm) * (1 + n.focus * 0.35);
+        const shY = cardBottomY + lerp(14, 24, n.depthNorm);
         const shW = cardW * n.scale * 0.46;
         const shH = Math.max(7, cardH * n.scale * 0.11);
-        const shAlpha = n.opacity * lerp(0.06, 0.16, n.depthNorm) * (1 + n.focus * 0.25);
+        const shAlpha = n.opacity * lerp(0.06, 0.16, n.depthNorm);
 
         fieldCtx.save();
         fieldCtx.translate(n.screenX, shY);
         fieldCtx.scale(1, shH / Math.max(shW, 1));
         const rg = fieldCtx.createRadialGradient(0, 0, 0, 0, 0, shW);
-        rg.addColorStop(0, `rgba(15, 23, 42, ${(shAlpha * 0.72).toFixed(4)})`);
-        rg.addColorStop(0.45, rgba(n.vendor.primary, shAlpha * 0.52));
-        rg.addColorStop(1, "rgba(255,255,255,0)");
+        const pCol = resolveVendorPrimary(n.vendor, dark);
+        rg.addColorStop(
+          0,
+          dark
+            ? rgba(pCol, shAlpha * 0.65)
+            : `rgba(15, 23, 42, ${(shAlpha * 0.72).toFixed(4)})`,
+        );
+        rg.addColorStop(0.45, rgba(pCol, shAlpha * (dark ? 0.32 : 0.52)));
+        rg.addColorStop(1, dark ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)");
         fieldCtx.fillStyle = rg;
         fieldCtx.beginPath();
         fieldCtx.arc(0, 0, shW, 0, TAU);
@@ -592,6 +525,7 @@ export function OpeningConstellationIntro({
         fieldCtx.lineCap = "round";
         for (let i = 0; i < COUNT; i++) {
           const v = VENDORS[i];
+          const vTrail = resolveVendorTrail(v, dark);
           const samples = 24;
           const pts: { x: number; y: number }[] = [];
           for (let s = 0; s <= samples; s++) {
@@ -612,9 +546,9 @@ export function OpeningConstellationIntro({
             const head = pts[0];
             const tail = pts[pts.length - 1];
             const tg = fieldCtx.createLinearGradient(head.x, head.y, tail.x, tail.y);
-            tg.addColorStop(0, rgba(v.trail.head, 0.9 * trailStrength));
-            tg.addColorStop(0.5, rgba(v.trail.mid, 0.48 * trailStrength));
-            tg.addColorStop(1, rgba(v.trail.tail, 0));
+            tg.addColorStop(0, rgba(vTrail.head, 0.9 * trailStrength));
+            tg.addColorStop(0.5, rgba(vTrail.mid, 0.48 * trailStrength));
+            tg.addColorStop(1, rgba(vTrail.tail, 0));
             fieldCtx.strokeStyle = tg;
             fieldCtx.lineWidth = 3.6 * trailStrength + 0.8;
             fieldCtx.beginPath();
@@ -624,7 +558,7 @@ export function OpeningConstellationIntro({
 
             fieldCtx.beginPath();
             fieldCtx.arc(head.x, head.y, 3.8 * trailStrength, 0, TAU);
-            fieldCtx.fillStyle = rgba(v.trail.head, 0.92 * trailStrength);
+            fieldCtx.fillStyle = rgba(vTrail.head, 0.92 * trailStrength);
             fieldCtx.fill();
           }
         }
@@ -654,65 +588,102 @@ export function OpeningConstellationIntro({
         }
       }
 
-      // 背景细腻空气粒子共振
+      // 背景细腻空气粒子共振（暗夜模式走多光谱深空星尘精灵）
       const fieldRx = width * 0.38;
       const fieldRy = Math.min(height * 0.32, Math.max(132, fieldRx * 0.54));
       const tiltCos = Math.cos(rollTilt);
       const tiltSin = Math.sin(rollTilt);
       const arcPhase = 1.33 + Math.sin(ambientTime * 0.27) * 0.44;
-      const fx = follow.x * 0.075 + Math.sin(ambientTime * 0.47) * 0.032;
-      const fy = follow.y * 0.075 + Math.sin(ambientTime * 0.63) * 0.025;
-      const fieldMode = spotlightIdx >= 0 ? VENDORS[spotlightIdx].fieldMode : "none";
+      const fx = follow.x * (dark ? 0.056 : 0.075) + Math.sin(ambientTime * 0.47) * 0.028;
+      const fy = follow.y * (dark ? 0.056 : 0.075) + Math.sin(ambientTime * 0.63) * 0.022;
 
       fieldCtx.save();
-      fieldCtx.lineCap = "round";
-      const baseStr = rgba(curTint, 1);
-      const accentStr = rgba(curAccent, 1);
-      for (const p of particles) {
-        const x = p.x + Math.sin(ambientTime * 0.92 + p.phase) * 0.018;
-        const y = p.y + Math.cos(ambientTime * 0.78 + p.phase) * 0.022;
-        const lx = x - fx;
-        const ly = y - fy;
-        const ang = Math.atan2(ly, lx);
-        const dist = Math.hypot(lx, ly);
-        const offset = dist - 0.88 + Math.sin(ang * 4 + ambientTime) * 0.022;
-        const broad = Math.exp(-(((offset + 0.034) / 0.145) ** 2));
-        const rim = Math.exp(-((offset / 0.058) ** 2));
-        const arc = 0.56 + 0.44 * (0.5 + 0.5 * Math.cos(ang * 2 + arcPhase)) ** 2;
-        const band = broad * 0.42 + rim * 0.58;
-        const strength = band * arc;
+      if (dark) {
+        fieldCtx.globalCompositeOperation = "lighter";
+        const introFade = 1 - handoffP;
 
-        let highlight = 0;
-        if (anyFocus > 0.05) {
-          if (fieldMode === "glint") {
-            highlight = band * arcLight(ang, -2.8 + ((ambientTime * 1.4) % TAU), 0.36) * anyFocus;
-          } else if (fieldMode === "slash") {
-            highlight =
-              band *
-              (arcLight(ang, -Math.PI / 4, 0.28) + arcLight(ang, (3 * Math.PI) / 4, 0.28)) *
-              0.7 *
-              anyFocus;
-          } else {
-            highlight = band * arcLight(ang, ambientTime * 0.9, 0.6) * 0.45 * anyFocus;
-          }
+        for (const star of deepStars) {
+          const sx = width * 0.5 + star.nx * width * 0.5 + follow.x * width * 0.034 * star.depth;
+          const sy = height * 0.5 + star.ny * height * 0.5 + follow.y * height * 0.034 * star.depth;
+          const twinkle =
+            1 -
+            star.twinkleDepth *
+              0.55 *
+              (0.5 - 0.5 * Math.sin(ambientTime * star.twinkleSpeed * 0.48 + star.twinklePhase));
+          stampCosmicStar(
+            fieldCtx,
+            starAtlas,
+            star.spectral,
+            sx,
+            sy,
+            star.drawRadius * 0.92,
+            star.luminance * twinkle * introFade,
+            star.hasFlare,
+          );
         }
-        if (strength < 0.06 && highlight < 0.05 && p.seed < 0.55) continue;
 
-        const px = (fx + lx) * fieldRx;
-        const py = (fy + ly) * fieldRy;
-        const sx = cx + px * tiltCos - py * tiltSin;
-        const sy = cy + px * tiltSin + py * tiltCos;
-        const len = 0.8 + p.seed * 0.8 + strength * 2.2 + highlight * 4.2;
-        const dir = Math.atan2(ly * fieldRy, lx * fieldRx) + rollTilt + Math.sin(p.phase + ambientTime) * 0.16;
-        const tx = Math.cos(dir) * len * 0.5;
-        const ty = Math.sin(dir) * len * 0.5;
-        fieldCtx.globalAlpha = clamp((0.08 + strength * 0.34 + highlight * 0.46) * (1 - handoffP), 0, 0.85);
-        fieldCtx.strokeStyle = rim * arc > 0.34 && p.seed > 0.3 ? accentStr : baseStr;
-        fieldCtx.lineWidth = 0.8 + strength * 0.7;
-        fieldCtx.beginPath();
-        fieldCtx.moveTo(sx - tx, sy - ty);
-        fieldCtx.lineTo(sx + tx, sy + ty);
-        fieldCtx.stroke();
+        const ringCollapse = 1 - easeInOutQuart(convergeP) * 0.72;
+        for (const star of galaxyStars) {
+          const ang = star.angle + ambientTime * star.orbitSpeed;
+          const r = star.radius * 0.94 * ringCollapse;
+          const lx = Math.cos(ang) * r;
+          const ly = Math.sin(ang) * r;
+          const px = (fx + lx) * fieldRx;
+          const py = (fy + ly) * fieldRy;
+          const sx = cx + px * tiltCos - py * tiltSin;
+          const sy = cy + px * tiltSin + py * tiltCos;
+          const twinkle =
+            1 -
+            star.twinkleDepth *
+              0.52 *
+              (0.5 - 0.5 * Math.sin(ambientTime * star.twinkleSpeed * 0.46 + star.twinklePhase));
+          stampCosmicStar(
+            fieldCtx,
+            starAtlas,
+            star.spectral,
+            sx,
+            sy,
+            star.drawRadius * 0.88,
+            star.luminance * twinkle * 0.9 * introFade,
+            star.hasFlare,
+          );
+        }
+      } else {
+        fieldCtx.lineCap = "round";
+        const baseStr = rgba(curTint, 1);
+        const accentStr = rgba(curAccent, 1);
+        for (const p of particles) {
+          const x = p.x + Math.sin(ambientTime * 0.92 + p.phase) * 0.018;
+          const y = p.y + Math.cos(ambientTime * 0.78 + p.phase) * 0.022;
+          const lx = x - fx;
+          const ly = y - fy;
+          const ang = Math.atan2(ly, lx);
+          const dist = Math.hypot(lx, ly);
+          const offset = dist - 0.88 + Math.sin(ang * 4 + ambientTime) * 0.022;
+          const broad = Math.exp(-(((offset + 0.034) / 0.145) ** 2));
+          const rim = Math.exp(-((offset / 0.058) ** 2));
+          const arc = 0.56 + 0.44 * (0.5 + 0.5 * Math.cos(ang * 2 + arcPhase)) ** 2;
+          const band = broad * 0.42 + rim * 0.58;
+          const strength = band * arc;
+
+          if (strength < 0.06 && p.seed < 0.55) continue;
+
+          const px = (fx + lx) * fieldRx;
+          const py = (fy + ly) * fieldRy;
+          const sx = cx + px * tiltCos - py * tiltSin;
+          const sy = cy + px * tiltSin + py * tiltCos;
+          const len = 0.8 + p.seed * 0.8 + strength * 2.2;
+          const dir = Math.atan2(ly * fieldRy, lx * fieldRx) + rollTilt + Math.sin(p.phase + ambientTime) * 0.16;
+          const tx = Math.cos(dir) * len * 0.5;
+          const ty = Math.sin(dir) * len * 0.5;
+          fieldCtx.globalAlpha = clamp((0.08 + strength * 0.34) * (1 - handoffP), 0, 0.85);
+          fieldCtx.strokeStyle = rim * arc > 0.34 && p.seed > 0.3 ? accentStr : baseStr;
+          fieldCtx.lineWidth = 0.8 + strength * 0.7;
+          fieldCtx.beginPath();
+          fieldCtx.moveTo(sx - tx, sy - ty);
+          fieldCtx.lineTo(sx + tx, sy + ty);
+          fieldCtx.stroke();
+        }
       }
       fieldCtx.restore();
 
@@ -736,7 +707,7 @@ export function OpeningConstellationIntro({
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 overflow-hidden select-none bg-[#f4f4f6]"
+      className="fixed inset-0 z-50 overflow-hidden select-none bg-[#f4f4f6] dark:bg-[#05060B]"
     >
       <canvas
         ref={fieldCanvasRef}
@@ -752,22 +723,23 @@ export function OpeningConstellationIntro({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
         style={{
-          background:
-            "radial-gradient(ellipse 78% 68% at 50% 47%, rgba(255,255,255,0) 62%, rgba(186,192,206,0.24) 100%)",
+          background: isDark
+            ? "radial-gradient(ellipse 78% 68% at 50% 47%, rgba(0,0,0,0) 56%, rgba(3,4,9,0.58) 100%)"
+            : "radial-gradient(ellipse 78% 68% at 50% 47%, rgba(255,255,255,0) 62%, rgba(186,192,206,0.24) 100%)",
         }}
       />
 
-      {/* 极简纯图标控制微条（无任何文字干扰，可暂停/重播/跳看单家/变速/跳过） */}
+      {/* 极简纯图标控制微条（可暂停/重播/变速/跳过） */}
       <nav
         aria-label="开场动画控制"
-        className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-900/10 bg-white/85 px-2.5 py-1.5 opacity-75 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.18)] backdrop-blur-md transition hover:bg-white/95 hover:opacity-100"
+        className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-900/10 bg-white/85 px-2.5 py-1.5 opacity-75 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.18)] backdrop-blur-md transition hover:bg-white/95 hover:opacity-100 dark:border-white/[0.12] dark:bg-[#121420]/82 dark:shadow-[0_16px_42px_rgba(0,0,0,0.68)] dark:hover:bg-[#171A29]/95"
       >
         <button
           type="button"
           onClick={() => setPlaying((p) => !p)}
           title={playing ? "暂停 (Space)" : "播放 (Space)"}
           aria-label={playing ? "暂停" : "播放"}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90 dark:text-[#C8CCE0] dark:hover:bg-white/[0.08] dark:hover:text-white"
         >
           {playing ? (
             <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
@@ -786,7 +758,7 @@ export function OpeningConstellationIntro({
           onClick={replay}
           title="重播 (R)"
           aria-label="重播"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90 dark:text-[#C8CCE0] dark:hover:bg-white/[0.08] dark:hover:text-white"
         >
           <svg
             width="14"
@@ -803,32 +775,14 @@ export function OpeningConstellationIntro({
           </svg>
         </button>
 
-        <div className="mx-0.5 h-3.5 w-px bg-slate-900/15" />
-
-        <div className="flex items-center gap-1.5 px-1">
-          {VENDORS.map((vendor, index) => (
-            <button
-              key={vendor.id}
-              ref={(el) => {
-                dotButtonsRef.current[index] = el;
-              }}
-              type="button"
-              title={vendor.id}
-              aria-label={vendor.id}
-              onClick={() => jumpToVendor(index)}
-              className="intro-dock-dot h-2 w-2 rounded-full bg-slate-900/25 transition-transform duration-200 hover:scale-150"
-            />
-          ))}
-        </div>
-
-        <div className="mx-0.5 h-3.5 w-px bg-slate-900/15" />
+        <div className="mx-0.5 h-3.5 w-px bg-slate-900/15 dark:bg-white/[0.14]" />
 
         <button
           type="button"
           onClick={() => setSpeedIdx((s) => (s + 1) % SPEEDS.length)}
           title={`切换倍速 (${SPEEDS[speedIdx]}x)`}
           aria-label="切换倍速"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90 dark:text-[#C8CCE0] dark:hover:bg-white/[0.08] dark:hover:text-white"
         >
           <span className="inline-flex h-2.5 items-end gap-[2px]">
             <span
@@ -854,7 +808,7 @@ export function OpeningConstellationIntro({
           onClick={skipToWorkbench}
           title="进入工作台 (Esc)"
           aria-label="跳过开场进入工作台"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-900/6 hover:text-slate-950 active:scale-90 dark:text-[#C8CCE0] dark:hover:bg-white/[0.08] dark:hover:text-white"
         >
           <svg
             width="14"

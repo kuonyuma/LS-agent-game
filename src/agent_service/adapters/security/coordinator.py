@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass, field, replace
 
@@ -100,6 +100,8 @@ class RunCoordinator:
         user_query: str,
         permission_check: PermissionCheck | None = None,
         run_control: RunControl | None = None,
+        *,
+        user_context_parts: Sequence[types.Part] = (),
     ) -> AsyncGenerator[LoopEvent]:
         """启动一轮完整的用户对话，一边转发 Agent 事件，一边在后台并发审核模型输出的文字。
 
@@ -111,6 +113,7 @@ class RunCoordinator:
         参数:
             history: 本次提问之前的旧聊天记录列表。
             user_query: 用户这一轮刚输入的问题或指令。
+            user_context_parts: 与本轮问题一起发送的附件等资料。
             permission_check: 当模型想执行改文件、跑命令等危险工具时，用来找人确认的函数；
                 返回 True 才放行，传 None 时默认拒绝所有需要确认的工具。
             run_control: 用于控制运行停止和保存历史快照的控制器；传 None 时会自动新建一个。
@@ -124,7 +127,7 @@ class RunCoordinator:
         user_part = types.Part.from_text(text=user_query)
         user_message = types.Content(
             role="user",
-            parts=[user_part],
+            parts=[user_part, *user_context_parts],
         )
         initial_history = [*history, user_message]
         control.capture(
@@ -172,6 +175,7 @@ class RunCoordinator:
                         user_query=user_query,
                         permission_check=guarded_permission,
                         run_control=control,
+                        user_context_parts=user_context_parts,
                     )
                 ) as stream:
                     async for event in stream:

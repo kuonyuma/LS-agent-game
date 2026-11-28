@@ -2,6 +2,8 @@ import type {
   AttachmentPreview,
   EmbeddingDefaults,
   EmbeddingProviderType,
+  ImageOptions,
+  ImageSearchStatus,
   KnowledgeBaseSummary,
   KnowledgeDocumentInfo,
   KnowledgeHit,
@@ -10,25 +12,88 @@ import type {
   SessionDetail,
   SessionSummary,
   ToolInfo,
+  WebAccount,
   WorkspaceBrowseResult,
 } from "./types";
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    ...init,
-  });
+export const ACCOUNT_EXPIRED_EVENT = "agent-workbench-account-expired";
+let currentAccountId: string | null = null;
+
+export class ApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+export function setRequestAccount(id: string | null) {
+  currentAccountId = id;
+}
+
+async function apiFetch(url: string, init?: RequestInit, attachAccount = true): Promise<Response> {
+  const accountId = attachAccount ? currentAccountId : null;
+  const headers = new Headers(init?.headers);
+  if (typeof init?.body === "string") headers.set("Content-Type", "application/json");
+  if (init?.method && init.method !== "GET") headers.set("X-Agent-Request", "1");
+  if (accountId) headers.set("X-Agent-User", accountId);
+  const res = await fetch(url, { ...init, headers, credentials: "same-origin" });
+  if (res.status === 401 && accountId && accountId === currentAccountId) {
+    window.dispatchEvent(new Event(ACCOUNT_EXPIRED_EVENT));
+  }
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      if (body?.detail) detail = String(body.detail);
+      if (typeof body?.detail === "string") detail = body.detail;
     } catch {
-      // ignore parse failure
+      // 保留 HTTP 状态作为错误提示。
     }
-    throw new Error(detail);
+    throw new ApiError(res.status, detail);
   }
+  return res;
+}
+
+async function requestJson<T>(url: string, init?: RequestInit, attachAccount = true): Promise<T> {
+  const res = await apiFetch(url, init, attachAccount);
   return (await res.json()) as T;
+}
+
+export function fetchCurrentAccount(): Promise<WebAccount> {
+  return requestJson("/api/auth/me", undefined, false);
+}
+
+export async function canCreateAdmin(): Promise<boolean> {
+  try {
+    const setup = await requestJson<{ can_create_admin: boolean }>("/api/auth/setup", undefined, false);
+    return setup.can_create_admin;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return false;
+    throw err;
+  }
+}
+
+export function createFirstAdmin(username: string, password: string): Promise<WebAccount> {
+  return requestJson("/api/auth/setup", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  }, false);
+}
+
+export function loginAccount(username: string, password: string): Promise<WebAccount> {
+  return requestJson("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  }, false);
+}
+
+export function logoutAccount(): Promise<{ logged_out: boolean }> {
+  return requestJson("/api/auth/logout", { method: "POST" });
+}
+
+export function createWorkbenchUser(username: string, password: string): Promise<Omit<WebAccount, "mode">> {
+  return requestJson("/api/auth/users", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
 }
 
 export function fetchHealth(): Promise<{
@@ -37,16 +102,49 @@ export function fetchHealth(): Promise<{
   workspace_name: string;
   default_provider: string;
   default_model: string;
+  image_search?: ImageSearchStatus;
 }> {
   return requestJson("/api/health");
 }
 
-export function fetchProviders(): Promise<{
+export function fetchProviders(refreshModels = false): Promise<{
   default_provider: string;
   providers: ProviderInfo[];
   embedding?: EmbeddingDefaults;
 }> {
-  return requestJson("/api/providers");
+  const query = refreshModels ? "?refresh_models=true" : "";
+  return requestJson(`/api/providers${query}`);
+}
+
+export interface ChatGPTAuthStatus {
+  connected: boolean;
+  account_email: string;
+  account_name: string;
+  has_client_id: boolean;
+  expires_at: number;
+  usage_url: string;
+}
+
+export function startChatGPTLogin(): Promise<{
+  authorize_url: string;
+  state: string;
+  redirect_uri: string;
+}> {
+  return requestJson("/api/auth/chatgpt/start", {
+    method: "POST",
+  });
+}
+
+export function fetchChatGPTAuthStatus(): Promise<ChatGPTAuthStatus> {
+  return requestJson("/api/auth/chatgpt/status");
+}
+
+export function logoutChatGPT(): Promise<
+  ChatGPTAuthStatus & { logged_out: boolean }
+> {
+  return requestJson("/api/auth/chatgpt/logout", {
+    method: "POST",
+  });
 }
 
 export function fetchKnowledgeBases(): Promise<{
@@ -59,7 +157,7 @@ export function fetchKnowledgeBases(): Promise<{
 export function createKnowledgeBase(payload: {
   name: string;
   description?: string;
-  embedding_provider: EmbeddingProviderType;
+  embedding_provider?: EmbeddingProviderType;
   embedding_model?: string;
   embedding_base_url?: string;
   embedding_dim?: number;
@@ -87,7 +185,7 @@ export function fetchKnowledgeDocuments(kbId: string): Promise<{
   );
 }
 
-export async function uploadKnowledgeDocuments(
+export function uploadKnowledgeDocuments(
   kbId: string,
   files: File[],
   options?: { apiKey?: string; enableOcr?: boolean },
@@ -105,28 +203,13 @@ export async function uploadKnowledgeDocuments(
   }
   form.append("enable_ocr", options?.enableOcr ? "true" : "false");
 
-  const res = await fetch(
+  return requestJson(
     `/api/knowledge-bases/${encodeURIComponent(kbId)}/documents`,
     {
       method: "POST",
       body: form,
     },
   );
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = await res.json();
-      if (body?.detail) detail = String(body.detail);
-    } catch {
-      // ignore parse failure
-    }
-    throw new Error(detail);
-  }
-  return (await res.json()) as {
-    knowledge_base: KnowledgeBaseSummary;
-    documents: KnowledgeDocumentInfo[];
-    errors: Array<{ filename: string; error: string }>;
-  };
 }
 
 export function deleteKnowledgeDocument(
@@ -265,6 +348,8 @@ export interface StreamRunPayload {
   workspace?: string;
   api_key?: string;
   search_api_key?: string;
+  serper_api_key?: string;
+  tavily_api_key?: string;
   embedding_api_key?: string;
   knowledge_base_ids?: string[];
   thinking_enabled: boolean;
@@ -274,6 +359,8 @@ export interface StreamRunPayload {
   max_tokens?: number;
   system_prompt_override?: string;
   attachments?: AttachmentPreview[];
+  timezone?: string;
+  image_options?: ImageOptions;
 }
 
 export async function streamSessionRun(
@@ -282,26 +369,14 @@ export async function streamSessionRun(
   onEvent: (event: Record<string, unknown>) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/sessions/${encodeURIComponent(sessionId)}/runs`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       signal,
     },
   );
-
-  if (!res.ok) {
-    let detail = `请求失败 (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body?.detail) detail = String(body.detail);
-    } catch {
-      // ignore
-    }
-    throw new Error(detail);
-  }
 
   const reader = res.body?.getReader();
   if (!reader) {

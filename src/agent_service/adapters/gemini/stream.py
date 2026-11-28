@@ -32,6 +32,38 @@ def _build_thinking_config(thinking_level: str | None) -> types.ThinkingConfig |
         )
 
 
+_FOREIGN_THOUGHT_SIG_PREFIX = b"openai_reasoning_v1:"
+
+
+def _sanitize_contents_for_gemini(contents: Any) -> Any:
+    """跨厂商切换回 Gemini 时剥离其他厂商（如 OpenAI）的思考签名，避免 SDK/服务端报 400。"""
+
+    if not isinstance(contents, list):
+        return contents
+    sanitized: list[Any] = []
+    changed = False
+    for item in contents:
+        if not isinstance(item, types.Content) or not item.parts:
+            sanitized.append(item)
+            continue
+        new_parts: list[types.Part] = []
+        item_changed = False
+        for part in item.parts:
+            sig = getattr(part, "thought_signature", None)
+            if isinstance(sig, bytes) and sig.startswith(_FOREIGN_THOUGHT_SIG_PREFIX):
+                item_changed = True
+                changed = True
+                if part.text:
+                    new_parts.append(types.Part(text=part.text, thought=True))
+                continue
+            new_parts.append(part)
+        if item_changed:
+            sanitized.append(types.Content(role=item.role, parts=new_parts))
+        else:
+            sanitized.append(item)
+    return sanitized if changed else contents
+
+
 async def stream_message(
     contents: Any,
     system_prompt: str | None = "你是一位编程助手",
@@ -54,7 +86,7 @@ async def stream_message(
     )
     response = await active_client.aio.models.generate_content_stream(
         model=active_model,
-        contents=contents,
+        contents=_sanitize_contents_for_gemini(contents),
         config=config,
     )
 

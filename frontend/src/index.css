@@ -1,12 +1,85 @@
 @import "tailwindcss";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --surface-canvas: #ffffff;
+  --surface-sidebar: #f9f9f9;
+  --surface-card: #ffffff;
+  --surface-elevated: #ffffff;
+  --ink-primary: #0d0d0d;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.24);
+
+  /* Obsidian 亮色代码块语义变量 */
+  --font-code: "JetBrains Mono", "Cascadia Code", "Fira Code", Menlo, Monaco,
+    Consolas, "PingFang SC", "Microsoft YaHei UI", monospace;
+  --code-bg: #fafafa;
+  --code-bg-compact: #f7f7f8;
+  --code-border: rgba(15, 23, 42, 0.055);
+  --code-fg: #24292f;
+  --code-def: #1f2328;
+  --code-punctuation: #2e3338;
+  --code-keyword: #d53984;
+  --code-variable: #009c95;
+  --code-type: #d68600;
+  --code-string: #08a84b;
+  --code-number: #7852ee;
+  --code-comment: #8e929b;
+  --code-tag: #d53984;
+  --code-diff-add: #08a84b;
+  --code-diff-del: #e03e52;
+  --code-indent-guide: rgba(15, 23, 42, 0.095);
+  --code-badge: #7c818c;
+  --code-copy-bg: rgba(255, 255, 255, 0.92);
+  --code-copy-border: rgba(15, 23, 42, 0.09);
+  --code-copy-fg: #4b5563;
+  --code-copy-hover-bg: #ffffff;
+  --code-copy-hover-fg: #111827;
+  --code-selection: rgba(120, 82, 238, 0.14);
+}
+
+[data-theme="dark"] {
+  --surface-canvas: #0b0c14;
+  --surface-sidebar: #080910;
+  --surface-card: #121420;
+  --surface-elevated: #171a29;
+  --ink-primary: #f3f4fa;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  /* Obsidian 暗夜代码块语义变量（与 Astra Obsidian 星空画布和谐统一） */
+  --code-bg: #11131f;
+  --code-bg-compact: #0d0f1a;
+  --code-border: rgba(255, 255, 255, 0.08);
+  --code-fg: #dce0f0;
+  --code-def: #f3f4fa;
+  --code-punctuation: #9ba2bd;
+  --code-keyword: #f472b6;
+  --code-variable: #4fd1c5;
+  --code-type: #f0b454;
+  --code-string: #4ade80;
+  --code-number: #b392ff;
+  --code-comment: #767d99;
+  --code-tag: #f472b6;
+  --code-diff-add: #4ade80;
+  --code-diff-del: #fb7185;
+  --code-indent-guide: rgba(255, 255, 255, 0.09);
+  --code-badge: #7e85a3;
+  --code-copy-bg: rgba(23, 26, 41, 0.92);
+  --code-copy-border: rgba(255, 255, 255, 0.12);
+  --code-copy-fg: #aeb4ce;
+  --code-copy-hover-bg: rgba(34, 38, 58, 0.98);
+  --code-copy-hover-fg: #f3f4fa;
+  --code-selection: rgba(179, 146, 255, 0.22);
+}
 
 @layer base {
   html,
   body,
   #root {
     height: 100%;
-    background-color: #ffffff;
-    color: #0d0d0d;
+    background-color: var(--surface-canvas);
+    color: var(--ink-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
       "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -22,12 +95,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
+    background: var(--scrollbar-thumb);
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.24);
+    background: var(--scrollbar-thumb-hover);
   }
 }
 
@@ -95,40 +168,121 @@
   color: #737373;
 }
 
-.markdown-body a {
+.markdown-body a:not(.citation-pill) {
   color: #1a73e8;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .markdown-body :not(pre) > code {
-  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Monaco,
-    Consolas, monospace;
-  font-size: 0.84em;
-  background-color: #f3f4f6;
-  color: #171717;
-  padding: 0.14em 0.38em;
+  font-family: var(--font-code);
+  font-size: 0.85em;
+  background-color: rgba(15, 23, 42, 0.05);
+  color: #24292f;
+  padding: 0.14em 0.4em;
   border-radius: 0.35rem;
 }
 
-.markdown-body pre {
-  background-color: #141414;
-  color: #ececec;
-  padding: 0.95rem 1.1rem;
-  border-radius: 0.85rem;
+/* 回退原生 pre（如 PPT 审批预览中的简单代码块）与 Obsidian 代码块保持同一浅灰纸面风格 */
+.markdown-body pre:not(.obsidian-code-pre) {
+  background-color: var(--code-bg);
+  color: var(--code-fg);
+  padding: 1rem 1.2rem;
+  border-radius: 0.5rem;
   overflow-x: auto;
   margin: 0.9em 0;
-  border: 1px solid #262626;
+  border: 1px solid var(--code-border);
 }
 
-.markdown-body pre code {
+.markdown-body pre:not(.obsidian-code-pre) code {
   background: transparent;
   color: inherit;
   padding: 0;
-  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Monaco,
-    Consolas, monospace;
-  font-size: 0.825rem;
-  line-height: 1.6;
+  font-family: var(--font-code);
+  font-size: 0.845rem;
+  line-height: 1.65;
+}
+
+/* Obsidian 风格 Shiki 代码块容器、缩进参考线与极简复制按钮 */
+.obsidian-code-block {
+  background-color: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 0.5rem;
+}
+
+.obsidian-code-compact {
+  background-color: var(--code-bg-compact);
+  border-radius: 0.55rem;
+}
+
+.obsidian-code-pre {
+  --code-lh: 1.65;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: var(--code-fg);
+  overflow-x: auto;
+  overflow-y: auto;
+  font-family: var(--font-code);
+  font-size: 0.845rem;
+  line-height: var(--code-lh);
+  tab-size: 4;
+  -moz-tab-size: 4;
+  font-feature-settings: "liga" 0, "calt" 0;
+  word-break: normal;
+  white-space: pre;
+}
+
+.obsidian-code-pre--titled {
+  padding: 2rem 1.3rem 1.05rem;
+}
+
+.obsidian-code-pre--plain {
+  padding: 1.05rem 1.3rem;
+}
+
+.obsidian-code-pre--compact {
+  --code-lh: 1.6;
+  max-height: 12rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.725rem;
+}
+
+.obsidian-code-content {
+  display: block;
+  min-width: max-content;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.obsidian-code-content ::selection,
+.obsidian-code-content::selection {
+  background-color: var(--code-selection);
+}
+
+.code-indent-guide {
+  display: inline-block;
+  height: calc(1em * var(--code-lh, 1.65));
+  line-height: var(--code-lh, 1.65);
+  vertical-align: top;
+  box-shadow: inset 1px 0 0 var(--code-indent-guide);
+}
+
+.obsidian-code-copy {
+  background-color: var(--code-copy-bg);
+  border: 1px solid var(--code-copy-border);
+  color: var(--code-copy-fg);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.obsidian-code-copy:hover {
+  background-color: var(--code-copy-hover-bg);
+  color: var(--code-copy-hover-fg);
 }
 
 .markdown-body blockquote {
@@ -147,21 +301,32 @@
 .markdown-body table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0.9em 0;
+  margin: 0;
   font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .markdown-body th,
 .markdown-body td {
-  border-bottom: 1px solid #e5e5e5;
-  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #e7e7e7;
+  padding: 0.62rem 0.8rem;
   text-align: left;
+  vertical-align: top;
 }
 
 .markdown-body th {
   font-weight: 600;
   color: #0d0d0d;
   border-bottom-color: #d4d4d4;
+  white-space: nowrap;
+}
+
+.markdown-body tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown-body tbody tr:hover td {
+  background-color: rgba(15, 23, 42, 0.022);
 }
 
 @keyframes effortPop {
@@ -342,20 +507,25 @@
 }
 
 @keyframes welcome-chrome-out {
-  from {
+  0% {
     opacity: 1;
     transform: translateY(0) scale(1);
     filter: blur(0px);
   }
-  to {
+  28% {
+    opacity: 0.92;
+    transform: translateY(2px) scale(0.972);
+    filter: blur(0.6px);
+  }
+  100% {
     opacity: 0;
-    transform: translateY(-14px) scale(0.985);
-    filter: blur(3px);
+    transform: translateY(-10px) scale(1.11);
+    filter: blur(8px);
   }
 }
 
 .welcome-chrome-exit {
-  animation: welcome-chrome-out 240ms cubic-bezier(0.32, 0, 0.2, 1) forwards;
+  animation: welcome-chrome-out 320ms cubic-bezier(0.32, 0.04, 0.2, 1) forwards;
 }
 
 @keyframes assistant-handoff-sweep {
@@ -375,7 +545,7 @@
 
 .assistant-handoff-echo {
   transform-origin: left center;
-  animation: assistant-handoff-sweep 1120ms cubic-bezier(0.22, 1, 0.36, 1) 260ms both;
+  animation: assistant-handoff-sweep 1120ms cubic-bezier(0.22, 1, 0.36, 1) 420ms both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -384,4 +554,164 @@
     animation: none;
     opacity: 0;
   }
+}
+
+/* ============================================================================
+   Astra Obsidian 暗夜模式：Markdown / 星云舞台 / 暗曜光学玻璃卡片
+   ============================================================================ */
+[data-theme="dark"] .markdown-body {
+  color: #d9dceb;
+}
+
+[data-theme="dark"] .markdown-body h1,
+[data-theme="dark"] .markdown-body h2,
+[data-theme="dark"] .markdown-body h3,
+[data-theme="dark"] .markdown-body h4 {
+  color: #f3f4fa;
+}
+
+[data-theme="dark"] .markdown-body li::marker {
+  color: #7f85a3;
+}
+
+[data-theme="dark"] .markdown-body a:not(.citation-pill) {
+  color: #8ab4ff;
+}
+
+[data-theme="dark"] .markdown-body a:not(.citation-pill):hover {
+  color: #acc9ff;
+}
+
+[data-theme="dark"] .markdown-body :not(pre) > code {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #e9ecf8;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .markdown-body blockquote {
+  border-left-color: rgba(255, 255, 255, 0.18);
+  color: #9ba1bc;
+}
+
+[data-theme="dark"] .markdown-body hr {
+  border-top-color: rgba(255, 255, 255, 0.09);
+}
+
+[data-theme="dark"] .markdown-body th,
+[data-theme="dark"] .markdown-body td {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .markdown-body th {
+  color: #f3f4fa;
+  border-bottom-color: rgba(255, 255, 255, 0.16);
+}
+
+[data-theme="dark"] .markdown-body tbody tr:hover td {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .welcome-astra-backdrop {
+  background:
+    radial-gradient(
+      ellipse 58% 48% at 50% 48%,
+      rgba(36, 46, 98, 0.22) 0%,
+      rgba(32, 24, 68, 0.12) 44%,
+      rgba(5, 6, 12, 0) 76%
+    ),
+    radial-gradient(
+      ellipse 96% 88% at 50% 50%,
+      rgba(8, 10, 18, 0.12) 42%,
+      rgba(3, 4, 8, 0.92) 100%
+    );
+}
+
+[data-theme="dark"] .account-astra-backdrop {
+  background-color: #07080f;
+  background-image:
+    radial-gradient(
+      ellipse 68% 58% at 50% 44%,
+      rgba(58, 36, 118, 0.28) 0%,
+      rgba(22, 18, 52, 0.14) 46%,
+      rgba(5, 6, 12, 0) 80%
+    ),
+    radial-gradient(
+      ellipse 100% 92% at 50% 50%,
+      rgba(7, 8, 15, 0) 44%,
+      rgba(3, 4, 9, 0.86) 100%
+    );
+}
+
+[data-theme="dark"] .intro-vendor-card {
+  background: linear-gradient(
+    155deg,
+    rgba(22, 24, 39, 0.92) 0%,
+    rgba(14, 16, 27, 0.9) 60%,
+    rgba(9, 10, 18, 0.92) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.45) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 28px 64px -20px rgba(0, 0, 0, 0.72),
+    0 10px 26px -8px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .intro-vendor-card::after {
+  box-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.14) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+[data-theme="dark"] .intro-card-sheen {
+  background: linear-gradient(
+    112deg,
+    rgba(255, 255, 255, 0) 34%,
+    rgba(196, 208, 255, 0.16) 48%,
+    rgba(255, 255, 255, 0.28) 50%,
+    rgba(196, 208, 255, 0.1) 53%,
+    rgba(255, 255, 255, 0) 66%
+  );
+  mix-blend-mode: screen;
+}
+
+[data-theme="dark"] .intro-dock-dot[data-active="1"] {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16);
+}
+
+/* 昼夜径向揭幕（纯 CSS 合成器 @keyframes；双向均展开实时动态新层，全程不暂停、零闪白） */
+html[data-theme-switching] *:not([data-theme-toggle-icon]),
+html[data-theme-switching] *::before,
+html[data-theme-switching] *::after {
+  transition: none !important;
+}
+
+@keyframes theme-reveal-expand {
+  from {
+    clip-path: circle(0px at var(--vt-x, 95vw) var(--vt-y, 26px));
+  }
+  to {
+    clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 95vw) var(--vt-y, 26px));
+  }
+}
+
+::view-transition-group(root) {
+  animation-duration: 0s;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+  display: block;
+}
+
+html[data-theme-transition]::view-transition-old(root) {
+  z-index: 1;
+}
+
+html[data-theme-transition]::view-transition-new(root) {
+  z-index: 9999;
+  animation: theme-reveal-expand 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }

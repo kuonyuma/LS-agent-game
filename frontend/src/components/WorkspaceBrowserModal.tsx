@@ -99,29 +99,29 @@ export function WorkspaceBrowserModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-[2px] dark:bg-black/65 dark:backdrop-blur-xs"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[82vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_24px_64px_rgba(0,0,0,0.16)]"
+        className="flex max-h-[82vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_24px_64px_rgba(0,0,0,0.16)] dark:border-white/[0.11] dark:bg-[#141724] dark:shadow-[0_28px_84px_rgba(0,0,0,0.75)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-3.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-neutral-900">
-            <FolderOpen className="h-4 w-4 text-neutral-600" />
+        <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-3.5 dark:border-white/[0.08]">
+          <div className="flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-[#F3F4FA]">
+            <FolderOpen className="h-4 w-4 text-neutral-600 dark:text-[#9CA2BC]" />
             选择工作目录
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-800"
+            className="rounded-full p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-[#7F85A3] dark:hover:bg-white/[0.08] dark:hover:text-[#F3F4FA]"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Manual Path Input + Quick Navigation */}
-        <div className="space-y-2.5 border-b border-neutral-100 bg-[#fafafa] px-5 py-3">
+        <div className="space-y-2.5 border-b border-neutral-100 bg-[#fafafa] px-5 py-3 dark:border-white/[0.08] dark:bg-[#0E101B]">
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -134,13 +134,13 @@ export function WorkspaceBrowserModal({
                 }
               }}
               placeholder="输入或粘贴本地目录绝对路径，例如 A:\Root_Code\my-project"
-              className="flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 font-mono text-xs text-neutral-800 focus:border-neutral-400 focus:outline-none"
+              className="flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 font-mono text-xs text-neutral-800 focus:border-neutral-400 focus:outline-none dark:border-white/[0.11] dark:bg-[#090A12] dark:text-[#E8EBF6] dark:placeholder:text-[#666B85] dark:focus:border-violet-400/50"
             />
             <button
               type="button"
               disabled={loading}
               onClick={() => void handleJumpInput()}
-              className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50"
+              className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-[#DCE0F0] dark:hover:bg-white/[0.11]"
             >
               前往
             </button>
@@ -151,7 +151,7 @@ export function WorkspaceBrowserModal({
               type="button"
               disabled={loading}
               onClick={() => void loadPath("")}
-              className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-neutral-600 ring-1 ring-neutral-200/80 transition hover:bg-neutral-100 hover:text-neutral-900"
+              className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-neutral-600 ring-1 ring-neutral-200/80 transition hover:bg-neutral-100 hover:text-neutral-900 dark:bg-white/[0.05] dark:text-[#C8CCE0] dark:ring-white/[0.1] dark:hover:bg-white/[0.1] dark:hover:text-[#F3F4FA]"
             >
               <HardDrive className="h-3 w-3" />
               此计算机
@@ -161,7 +161,7 @@ export function WorkspaceBrowserModal({
                 type="button"
                 disabled={loading}
                 onClick={() => void loadPath(data.home)}
-                className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-neutral-600 ring-1 ring-neutral-200/80 transition hover:bg-neutral-100 hover:text-neutral-900"
+                className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-neutral-600 ring-1 ring-neutral-200/80 transition hover:bg-neutral-100 hover:text-neutral-900 dark:bg-white/[0.05] dark:text-[#C8CCE0] dark:ring-white/[0.1] dark:hover:bg-white/[0.1] dark:hover:text-[#F3F4FA]"
               >
                 <Home className="h-3 w-3" />
                 主目录
@@ -172,7 +172,7 @@ export function WorkspaceBrowserModal({
                 type="button"
                 disabled={loading}
                 onClick={() => void loadPath(data.parent)}
-                className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-neutral-600 ring-1 ring-neutral-200/80 transition hover:bg-neutral-100 hover:text-neutral-900"
+                className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-neutral-600 ring-1 ring-neutral-200/80 transition hover:bg-neutral-100 hover:text-neutral-900 dark:bg-white/[0.05] dark:text-[#C8CCE0] dark:ring-white/[0.1] dark:hover:bg-white/[0.1] dark:hover:text-[#F3F4FA]"
               >
                 <ArrowUp className="h-3 w-3" />
                 上一级
@@ -181,7 +181,7 @@ export function WorkspaceBrowserModal({
           </div>
 
           {error && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-700 dark:border-rose-400/25 dark:bg-rose-500/[0.11] dark:text-rose-200">
               {error}
             </div>
           )}
@@ -190,12 +190,12 @@ export function WorkspaceBrowserModal({
         {/* Directory List */}
         <div className="min-h-[260px] flex-1 overflow-y-auto px-3 py-2">
           {loading ? (
-            <div className="flex h-48 items-center justify-center gap-2 text-xs text-neutral-400">
+            <div className="flex h-48 items-center justify-center gap-2 text-xs text-neutral-400 dark:text-[#6E7490]">
               <Loader2 className="h-4 w-4 animate-spin" />
               正在读取目录...
             </div>
           ) : !data || data.directories.length === 0 ? (
-            <div className="flex h-48 items-center justify-center text-xs text-neutral-400">
+            <div className="flex h-48 items-center justify-center text-xs text-neutral-400 dark:text-[#6E7490]">
               当前目录下没有可进入的子文件夹
             </div>
           ) : (
@@ -205,13 +205,13 @@ export function WorkspaceBrowserModal({
                   <button
                     type="button"
                     onClick={() => void loadPath(dir.path)}
-                    className="group flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-950"
+                    className="group flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-950 dark:text-[#C8CCE0] dark:hover:bg-white/[0.06] dark:hover:text-[#F3F4FA]"
                   >
                     <span className="flex min-w-0 items-center gap-2.5">
-                      <Folder className="h-4 w-4 shrink-0 text-neutral-400 group-hover:text-neutral-700" />
+                      <Folder className="h-4 w-4 shrink-0 text-neutral-400 group-hover:text-neutral-700 dark:text-[#787E99] dark:group-hover:text-[#DCE0F0]" />
                       <span className="truncate font-medium">{dir.name}</span>
                     </span>
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-neutral-300 transition group-hover:text-neutral-600" />
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-neutral-300 transition group-hover:text-neutral-600 dark:text-white/25 dark:group-hover:text-[#9CA2BC]" />
                   </button>
                 </li>
               ))}
@@ -219,10 +219,10 @@ export function WorkspaceBrowserModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-5 py-3 dark:border-white/[0.08]">
           <div
             title={data?.current || pathInput}
-            className="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-500"
+            className="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-500 dark:text-[#8E94B0]"
           >
             {data?.current || "请选择具体文件夹"}
           </div>
@@ -230,7 +230,7 @@ export function WorkspaceBrowserModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full border border-neutral-200 px-4 py-1.5 text-xs font-medium text-neutral-600 transition hover:bg-neutral-100"
+              className="rounded-full border border-neutral-200 px-4 py-1.5 text-xs font-medium text-neutral-600 transition hover:bg-neutral-100 dark:border-white/[0.12] dark:text-[#C8CCE0] dark:hover:bg-white/[0.07] dark:hover:text-[#F3F4FA]"
             >
               取消
             </button>
@@ -238,7 +238,7 @@ export function WorkspaceBrowserModal({
               type="button"
               disabled={loading || (!data?.current && !pathInput.trim())}
               onClick={() => void handleConfirm()}
-              className="rounded-full bg-neutral-950 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40"
+              className="rounded-full bg-neutral-950 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40 dark:bg-[#F4F5FA] dark:text-[#090A10] dark:hover:bg-white"
             >
               设为工作区
             </button>

@@ -58,15 +58,15 @@ export function InspectorPanel({
     steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : 0;
 
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col border-l border-neutral-200/80 bg-[#f9f9f9]">
-      <div className="flex h-[52px] items-center justify-between border-b border-neutral-200/70 px-4">
+    <aside className="flex h-full w-80 shrink-0 flex-col border-l border-neutral-200/80 bg-[#f9f9f9] dark:border-white/[0.07] dark:bg-[#080910]">
+      <div className="flex h-[52px] items-center justify-between border-b border-neutral-200/70 px-4 dark:border-white/[0.07]">
         <div className="flex items-center gap-2">
           <span
             className={`h-2 w-2 rounded-full ${
-              isRunning ? "animate-pulse bg-blue-600" : "bg-neutral-300"
+              isRunning ? "animate-pulse bg-blue-600 dark:bg-[#7DA8FF]" : "bg-neutral-300 dark:bg-white/20"
             }`}
           />
-          <span className="text-[13.5px] font-semibold text-neutral-900">
+          <span className="text-[13.5px] font-semibold text-neutral-900 dark:text-[#F3F4FA]">
             运行追踪
           </span>
         </div>
@@ -74,7 +74,7 @@ export function InspectorPanel({
           type="button"
           onClick={onClose}
           title="关闭面板"
-          className="rounded-lg p-1 text-neutral-400 transition hover:bg-neutral-200/70 hover:text-neutral-800"
+          className="rounded-lg p-1 text-neutral-400 transition hover:bg-neutral-200/70 hover:text-neutral-800 dark:text-[#7F85A3] dark:hover:bg-white/[0.07] dark:hover:text-[#F3F4FA]"
         >
           <X className="h-4 w-4" />
         </button>
@@ -83,22 +83,22 @@ export function InspectorPanel({
       <div className="flex-1 space-y-5 overflow-y-auto p-4">
         {/* Phase & Safety */}
         <section className="space-y-2.5">
-          <div className="text-[11px] font-medium text-neutral-400">
+          <div className="text-[11px] font-medium text-neutral-400 dark:text-[#6C718C]">
             状态机与安全治理
           </div>
-          <div className="rounded-2xl border border-neutral-200/80 bg-white p-3.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900">
+          <div className="rounded-2xl border border-neutral-200/80 bg-white p-3.5 dark:border-white/[0.08] dark:bg-[#11131F]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900 dark:text-[#F3F4FA]">
               <span className={`h-2 w-2 rounded-full ${phaseInfo.dot}`} />
               {phaseInfo.label}
             </div>
-            <div className="mt-2.5 flex items-center justify-between border-t border-neutral-100 pt-2.5 text-xs">
-              <span className="text-neutral-500">异步安全审核</span>
+            <div className="mt-2.5 flex items-center justify-between border-t border-neutral-100 pt-2.5 text-xs dark:border-white/[0.07]">
+              <span className="text-neutral-500 dark:text-[#8F95B0]">异步安全审核</span>
               {safetyEnabled ? (
-                <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300">
                   <ShieldCheck className="h-3.5 w-3.5" /> 开启
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 font-medium text-amber-600">
+                <span className="inline-flex items-center gap-1 font-medium text-amber-600 dark:text-amber-300">
                   <ShieldOff className="h-3.5 w-3.5" /> 关闭
                 </span>
               )}
@@ -108,25 +108,25 @@ export function InspectorPanel({
 
         {/* Session Usage */}
         <section className="space-y-2">
-          <div className="text-[11px] font-medium text-neutral-400">
+          <div className="text-[11px] font-medium text-neutral-400 dark:text-[#6C718C]">
             累计 Token 用量
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-xl border border-neutral-200/80 bg-white px-2.5 py-2 text-center">
-              <div className="text-[10px] text-neutral-400">Input</div>
-              <div className="mt-0.5 font-mono text-xs font-semibold text-neutral-900">
+            <div className="rounded-xl border border-neutral-200/80 bg-white px-2.5 py-2 text-center dark:border-white/[0.08] dark:bg-[#11131F]">
+              <div className="text-[10px] text-neutral-400 dark:text-[#6E7490]">Input</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-neutral-900 dark:text-[#F3F4FA]">
                 {(sessionUsage.input_len ?? 0).toLocaleString()}
               </div>
             </div>
-            <div className="rounded-xl border border-neutral-200/80 bg-white px-2.5 py-2 text-center">
-              <div className="text-[10px] text-neutral-400">Output</div>
-              <div className="mt-0.5 font-mono text-xs font-semibold text-neutral-900">
+            <div className="rounded-xl border border-neutral-200/80 bg-white px-2.5 py-2 text-center dark:border-white/[0.08] dark:bg-[#11131F]">
+              <div className="text-[10px] text-neutral-400 dark:text-[#6E7490]">Output</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-neutral-900 dark:text-[#F3F4FA]">
                 {(sessionUsage.output_len ?? 0).toLocaleString()}
               </div>
             </div>
-            <div className="rounded-xl border border-neutral-200/80 bg-white px-2.5 py-2 text-center">
-              <div className="text-[10px] text-emerald-600">Cached</div>
-              <div className="mt-0.5 font-mono text-xs font-semibold text-emerald-700">
+            <div className="rounded-xl border border-neutral-200/80 bg-white px-2.5 py-2 text-center dark:border-white/[0.08] dark:bg-[#11131F]">
+              <div className="text-[10px] text-emerald-600 dark:text-emerald-400">Cached</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                 {(sessionUsage.cached_len ?? 0).toLocaleString()}
               </div>
             </div>
@@ -135,31 +135,31 @@ export function InspectorPanel({
 
         {/* Execution Plan */}
         <section className="space-y-2">
-          <div className="flex items-center justify-between text-[11px] font-medium text-neutral-400">
+          <div className="flex items-center justify-between text-[11px] font-medium text-neutral-400 dark:text-[#6C718C]">
             <span className="inline-flex items-center gap-1">
               <ListChecks className="h-3.5 w-3.5" />
               执行计划（ExecutionPlan）
             </span>
             {plan && steps.length > 0 && (
-              <span className="font-mono text-neutral-500">
+              <span className="font-mono text-neutral-500 dark:text-[#8F95B0]">
                 {completedCount}/{steps.length}
               </span>
             )}
           </div>
 
-          <div className="rounded-2xl border border-neutral-200/80 bg-white p-3.5">
+          <div className="rounded-2xl border border-neutral-200/80 bg-white p-3.5 dark:border-white/[0.08] dark:bg-[#11131F]">
             {!plan || steps.length === 0 ? (
-              <p className="text-xs leading-relaxed text-neutral-400">
+              <p className="text-xs leading-relaxed text-neutral-400 dark:text-[#6E7490]">
                 当任务需要多步执行时，内核自动生成的计划与步骤状态将在此实时同步。
               </p>
             ) : (
               <div className="space-y-3">
-                <div className="text-xs font-medium text-neutral-800">
+                <div className="text-xs font-medium text-neutral-800 dark:text-[#E4E7F4]">
                   {plan.goal}
                 </div>
-                <div className="h-1 w-full overflow-hidden rounded-full bg-neutral-100">
+                <div className="h-1 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-white/[0.08]">
                   <div
-                    className="h-full rounded-full bg-neutral-900 transition-all duration-300"
+                    className="h-full rounded-full bg-neutral-900 transition-all duration-300 dark:bg-[#F3F4FA]"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
@@ -170,26 +170,26 @@ export function InspectorPanel({
                       className="flex items-start gap-2 text-xs"
                     >
                       {step.status === "completed" ? (
-                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                       ) : step.status === "in_progress" ? (
-                        <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-pulse text-blue-600" />
+                        <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-pulse text-blue-600 dark:text-[#7DA8FF]" />
                       ) : step.status === "skipped" ? (
-                        <SkipForward className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                        <SkipForward className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-[#6C718C]" />
                       ) : (
-                        <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-300" />
+                        <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-300 dark:text-white/20" />
                       )}
                       <div className="min-w-0 flex-1">
                         <div
                           className={
                             step.status === "completed"
-                              ? "text-neutral-400 line-through"
-                              : "font-medium text-neutral-800"
+                              ? "text-neutral-400 line-through dark:text-[#6E7490]"
+                              : "font-medium text-neutral-800 dark:text-[#E4E7F4]"
                           }
                         >
                           {step.title}
                         </div>
                         {step.notes && (
-                          <div className="mt-0.5 text-[11px] text-neutral-500">
+                          <div className="mt-0.5 text-[11px] text-neutral-500 dark:text-[#8F95B0]">
                             {step.notes}
                           </div>
                         )}
@@ -199,7 +199,7 @@ export function InspectorPanel({
                 </ul>
 
                 {plan.unverified_edits.length > 0 && (
-                  <div className="rounded-xl bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
+                  <div className="rounded-xl bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800 dark:bg-amber-500/[0.11] dark:text-amber-200">
                     待验证修改：{plan.unverified_edits.join(", ")}
                   </div>
                 )}
@@ -211,7 +211,7 @@ export function InspectorPanel({
         {/* Reflections */}
         {plan && plan.reflections.length > 0 && (
           <section className="space-y-2">
-            <div className="flex items-center gap-1 text-[11px] font-medium text-neutral-400">
+            <div className="flex items-center gap-1 text-[11px] font-medium text-neutral-400 dark:text-[#6C718C]">
               <RefreshCcw className="h-3.5 w-3.5" />
               反思记录（{plan.reflections.length}）
             </div>
@@ -219,18 +219,18 @@ export function InspectorPanel({
               {plan.reflections.map((ref) => (
                 <div
                   key={ref.id}
-                  className="rounded-2xl border border-neutral-200/80 bg-white p-3 text-xs"
+                  className="rounded-2xl border border-neutral-200/80 bg-white p-3 text-xs dark:border-white/[0.08] dark:bg-[#11131F]"
                 >
-                  <div className="flex items-center justify-between font-semibold text-neutral-800">
+                  <div className="flex items-center justify-between font-semibold text-neutral-800 dark:text-[#E4E7F4]">
                     <span className="font-mono text-[11px]">{ref.id}</span>
-                    <span className="text-[11px] text-amber-700">
+                    <span className="text-[11px] text-amber-700 dark:text-amber-300">
                       {STRATEGY_LABELS[ref.strategy] ?? ref.strategy}
                     </span>
                   </div>
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-neutral-600">
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-neutral-600 dark:text-[#A9AEC6]">
                     {ref.diagnosis}
                   </p>
-                  <p className="mt-1 text-[11px] text-neutral-400">
+                  <p className="mt-1 text-[11px] text-neutral-400 dark:text-[#6E7490]">
                     下一步：{ref.next_action}
                   </p>
                 </div>
@@ -241,18 +241,18 @@ export function InspectorPanel({
 
         {/* Subagents */}
         <section className="space-y-2">
-          <div className="flex items-center justify-between text-[11px] font-medium text-neutral-400">
+          <div className="flex items-center justify-between text-[11px] font-medium text-neutral-400 dark:text-[#6C718C]">
             <span className="inline-flex items-center gap-1">
               <GitBranch className="h-3.5 w-3.5" />
               子代理协同
             </span>
             <span className="font-mono">{subagents.length}</span>
           </div>
-          <div className="rounded-2xl border border-neutral-200/80 bg-white p-3.5">
+          <div className="rounded-2xl border border-neutral-200/80 bg-white p-3.5 dark:border-white/[0.08] dark:bg-[#11131F]">
             {subagents.length === 0 ? (
-              <p className="text-xs leading-relaxed text-neutral-400">
+              <p className="text-xs leading-relaxed text-neutral-400 dark:text-[#6E7490]">
                 当任务需要并发探索或分工协作时，主代理会自主调用{" "}
-                <code className="font-mono text-neutral-600">subagent</code>{" "}
+                <code className="font-mono text-neutral-600 dark:text-[#A9AEC6]">subagent</code>{" "}
                 工具派发 Explorer / Worker / Monitor 子代理并在此展示状态。
               </p>
             ) : (
@@ -260,27 +260,27 @@ export function InspectorPanel({
                 {subagents.map((sa) => (
                   <div
                     key={sa.call_id}
-                    className="border-b border-neutral-100 pb-2 last:border-none last:pb-0"
+                    className="border-b border-neutral-100 pb-2 last:border-none last:pb-0 dark:border-white/[0.07]"
                   >
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono font-semibold text-neutral-800">
+                      <span className="font-mono font-semibold text-neutral-800 dark:text-[#E4E7F4]">
                         {sa.role}
                         {sa.agent_id ? ` · ${sa.agent_id}` : ""}
                       </span>
                       <span
                         className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                           sa.status === "completed"
-                            ? "bg-emerald-50 text-emerald-700"
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/[0.12] dark:text-emerald-300"
                             : sa.status === "failed"
-                              ? "bg-rose-50 text-rose-700"
-                              : "bg-blue-50 text-blue-700"
+                              ? "bg-rose-50 text-rose-700 dark:bg-rose-500/[0.12] dark:text-rose-300"
+                              : "bg-blue-50 text-blue-700 dark:bg-blue-500/[0.14] dark:text-blue-300"
                         }`}
                       >
                         {sa.status}
                       </span>
                     </div>
                     {sa.description && (
-                      <div className="mt-1 text-[11.5px] text-neutral-500">
+                      <div className="mt-1 text-[11.5px] text-neutral-500 dark:text-[#8F95B0]">
                         {sa.description}
                       </div>
                     )}

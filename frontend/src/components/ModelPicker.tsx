@@ -72,7 +72,9 @@ export function ModelPicker({
   );
   const activeLabel = activeModel?.label || selectedModel || "选择模型";
   const activeReady = Boolean(
-    activeProvider?.env_configured || apiKeys[selectedProvider],
+    activeProvider?.oauth_connected ||
+      activeProvider?.env_configured ||
+      apiKeys[selectedProvider],
   );
 
   return (
@@ -83,34 +85,43 @@ export function ModelPicker({
         aria-expanded={open && !disabled}
         onClick={() => setOpen((v) => !v)}
         title={`${activeLabel} · ${activeReady ? "密钥已就绪" : "待配置 API Key"}`}
-        className="inline-flex h-7 max-w-full items-center gap-1 rounded-full pl-2.5 pr-1.5 transition-colors hover:bg-black/5 hover:text-neutral-800 aria-expanded:bg-black/5 disabled:opacity-50"
+        className="inline-flex h-7 max-w-full items-center gap-1 rounded-full pl-2.5 pr-1.5 transition-colors hover:bg-black/5 hover:text-neutral-800 aria-expanded:bg-black/5 disabled:opacity-50 dark:hover:bg-white/[0.08] dark:hover:text-[#F3F4FA] dark:aria-expanded:bg-white/[0.08]"
       >
         <span className="truncate">{activeLabel}</span>
-        <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+        <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500 dark:text-[#8E94B0]" />
       </button>
 
       {open && !disabled && (
         <div
           style={menuSpace}
-          className="absolute bottom-full left-0 z-40 mb-2 flex w-72 flex-col overflow-hidden rounded-2xl border border-neutral-200/90 bg-white p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
+          className="absolute bottom-full left-0 z-40 mb-2 flex w-72 flex-col overflow-hidden rounded-2xl border border-neutral-200/90 bg-white p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] dark:border-white/[0.11] dark:bg-[#171A29] dark:shadow-[0_18px_48px_rgba(0,0,0,0.68)]"
         >
           <div className="min-h-0 max-h-96 space-y-2 overflow-y-auto p-1">
             {providers.map((provider) => {
               const ready = Boolean(
-                provider.env_configured || apiKeys[provider.id],
+                provider.oauth_connected ||
+                  provider.env_configured ||
+                  apiKeys[provider.id],
               );
+              const badgeText = provider.oauth_connected
+                ? "ChatGPT 已登录"
+                : ready
+                  ? "已就绪"
+                  : provider.auth_mode === "chatgpt_oauth"
+                    ? "待登录 ChatGPT"
+                    : "未配置 Key";
               return (
                 <div key={provider.id}>
                   <div className="flex items-center justify-between px-2.5 py-1">
-                    <span className="text-[11px] font-medium text-neutral-400">
+                    <span className="text-[11px] font-medium text-neutral-400 dark:text-[#6E7490]">
                       {provider.label}
                     </span>
                     <span
                       className={`text-[10px] ${
-                        ready ? "text-emerald-600" : "text-amber-600"
+                        ready ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-300"
                       }`}
                     >
-                      {ready ? "已就绪" : "未配置 Key"}
+                      {badgeText}
                     </span>
                   </div>
                   <div className="space-y-0.5">
@@ -128,15 +139,15 @@ export function ModelPicker({
                           }}
                           className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition ${
                             isSelected
-                              ? "bg-neutral-100 text-neutral-950"
-                              : "text-neutral-700 hover:bg-neutral-50"
+                              ? "bg-neutral-100 text-neutral-950 dark:bg-white/[0.09] dark:text-[#F5F6FC]"
+                              : "text-neutral-700 hover:bg-neutral-50 dark:text-[#C8CCE0] dark:hover:bg-white/[0.05]"
                           }`}
                         >
                           <span className="truncate text-[13.5px] font-medium">
                             {model.label}
                           </span>
                           {isSelected && (
-                            <Check className="h-4 w-4 shrink-0 text-neutral-900" />
+                            <Check className="h-4 w-4 shrink-0 text-neutral-900 dark:text-[#F3F4FA]" />
                           )}
                         </button>
                       );
@@ -147,17 +158,17 @@ export function ModelPicker({
             })}
           </div>
 
-          <div className="mt-1 shrink-0 border-t border-neutral-100 pt-1">
+          <div className="mt-1 shrink-0 border-t border-neutral-100 pt-1 dark:border-white/[0.08]">
             <button
               type="button"
               onClick={() => {
                 setOpen(false);
                 onOpenSettings();
               }}
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900"
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900 dark:text-[#9EA4BF] dark:hover:bg-white/[0.06] dark:hover:text-[#F3F4FA]"
             >
               <KeyRound className="h-3.5 w-3.5" />
-              配置各厂商 API Key 与参数
+              配置 API Key / ChatGPT 登录与参数
             </button>
           </div>
         </div>

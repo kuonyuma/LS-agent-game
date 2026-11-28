@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { effortColor, resolveEffortAppearance } from "../effortAppearance";
+import { useTheme } from "../theme";
 import type { ReasoningEffort } from "../types";
 
 interface EffortMeta {
@@ -107,6 +108,7 @@ export function EffortSliderInline({
   entryLevel,
   onEntry,
 }: EffortSliderInlineProps) {
+  const { isDark } = useTheme();
   const [dragRatio, setDragRatio] = useState<number | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef<EffortDrag | null>(null);
@@ -122,7 +124,7 @@ export function EffortSliderInline({
   const committedRatio = maxStep > 0 ? currentIdx / maxStep : 0;
   const activeRatio = dragRatio ?? committedRatio;
   const previewIdx = Math.round(activeRatio * maxStep);
-  const appearance = resolveEffortAppearance(availableLevels, value, dragRatio);
+  const appearance = resolveEffortAppearance(availableLevels, value, dragRatio, isDark);
   const previewMeta = EFFORT_META[appearance.level];
   const baseColor = effortColor(appearance.base);
   const accentColor = effortColor(appearance.accent);
@@ -209,7 +211,11 @@ export function EffortSliderInline({
   const thumbLeftStyle = `calc(13px + (100% - 26px) * ${activeRatio})`;
   const fillWidthStyle = `calc(26px + (100% - 26px) * ${activeRatio})`;
   const trackWidthClass =
-    availableLevels.length >= 4 ? "w-[178px] sm:w-[206px]" : "w-[144px] sm:w-[168px]";
+    availableLevels.length >= 5
+      ? "w-[196px] sm:w-[228px]"
+      : availableLevels.length >= 4
+        ? "w-[178px] sm:w-[206px]"
+        : "w-[144px] sm:w-[168px]";
 
   return (
     <div
@@ -238,7 +244,7 @@ export function EffortSliderInline({
           onPointerCancel={handlePointerCancel}
           onLostPointerCapture={handlePointerCancel}
           onKeyDown={handleKeyDown}
-          className={`relative h-6 ${trackWidthClass} max-w-full cursor-pointer select-none touch-none rounded-full bg-neutral-200/75 ring-1 ring-inset ring-black/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400`}
+          className={`relative h-6 ${trackWidthClass} max-w-full cursor-pointer select-none touch-none rounded-full bg-neutral-200/75 ring-1 ring-inset ring-black/6 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 dark:bg-white/[0.09] dark:ring-white/[0.11]`}
         >
           {/* Animated flowing gradient energy bar + shimmer + stardust */}
           <div
@@ -252,7 +258,7 @@ export function EffortSliderInline({
               backgroundImage: `linear-gradient(90deg, ${baseColor}, ${accentColor})`,
               boxShadow: previewMeta.key === "off"
                 ? "none"
-                : `0 0 ${10 + appearance.trail * 7}px ${effortColor(appearance.accent, 0.34)}`,
+                : `0 0 ${10 + appearance.trail * 7}px ${effortColor(appearance.accent, isDark ? 0.44 : 0.34)}`,
             }}
           >
             {previewMeta.key !== "off" && (
@@ -288,7 +294,7 @@ export function EffortSliderInline({
                       ? "scale-0 opacity-0"
                       : filled
                         ? "bg-white/75"
-                        : "bg-neutral-400/75"
+                        : "bg-neutral-400/75 dark:bg-white/30"
                   }`}
                 />
               );

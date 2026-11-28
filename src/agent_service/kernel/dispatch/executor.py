@@ -69,7 +69,7 @@ async def execute_tools(
             )
         elif t is None:
             result = ToolResult(content=f"未知的工具{name}", is_error=True)
-        elif not t.read_only and call_id not in approved_tool_call_ids:
+        elif t.requires_approval() and call_id not in approved_tool_call_ids:
             result = ToolResult(
                 content="该工具调用未获得本次审批，已拒绝执行。",
                 is_error=True,

@@ -170,7 +170,7 @@ class SessionStore:
 
     def get(self, session_id: str) -> SessionRecord | None:
         path = self._path_for(session_id)
-        if not path.exists():
+        if path.with_suffix(".deleted").exists() or not path.exists():
             return None
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -183,6 +183,8 @@ class SessionStore:
     def list_sessions(self) -> list[SessionRecord]:
         records: list[SessionRecord] = []
         for path in self.base_dir.glob("*.json"):
+            if path.with_suffix(".deleted").exists():
+                continue
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(raw, dict) and "session_id" in raw:
@@ -196,5 +198,9 @@ class SessionStore:
         path = self._path_for(session_id)
         if not path.exists():
             return False
-        path.unlink()
+        # 保留原始历史。运行取消后的最后一次保存也不会复原已删除的会话。
+        try:
+            path.with_suffix(".deleted").touch(exist_ok=False)
+        except FileExistsError:
+            return False
         return True

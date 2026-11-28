@@ -1,10 +1,7 @@
 # Agent Service
 
-纯 Python 手写的 Gemini CLI 编程助手，使用 `google-genai`，不依赖 Agent 框架。
-按 [架构划分](docs/framewokr.md) 拆成五个内核模块与外部适配器，当前只保留本地 CLI。
-
-**原 Web 服务链路已删除**：不再提供 HTTP 接口、服务端审批、数据库持久化、迁移和容器部署。
-`web_search` 与 `fetch_web_page` 是 Agent 的联网工具，不属于被删除的服务端链路，仍保留。
+基于纯 Python 内核的 Agent，提供本地 CLI 和 Web 工作台。
+项目按 [架构划分](docs/framewokr.md) 拆成五个内核模块与外部适配器。
 
 ## 启动
 
@@ -26,6 +23,70 @@ Key 优先来自进程环境变量 `GEMINI_API_KEY`，回退到
 CLI 以启动时的当前目录作为文件工具工作区。文件参数使用相对路径，例如
 `src/agent_service/main.py`，不是绝对路径。需要改用其他工作区时，可通过
 Python 组装接口 `create_runner(workspace=Path(...))` 明确指定。
+
+## 启动共享 Web 工作台
+
+Web 工作台默认要求登录。从项目根目录执行以下 PowerShell 命令。
+
+```powershell
+uv sync --frozen --all-groups
+npm --prefix frontend install
+npm --prefix frontend run build -- --no-emptyOutDir
+& .venv\Scripts\python.exe -m agent_service.web_main
+```
+
+首次在运行后端的电脑上直接打开 `http://127.0.0.1:8000`，按页面提示创建管理员账号，密码至少 15 个字符。创建后会自动登录，之后打开工作台会显示普通登录页。无浏览器时也可用 `python -m agent_service.web_main --create-admin admin` 创建首个管理员。
+
+管理员可在右上角账号菜单开通成员账号。成员登录后可访问自己的聊天、知识库和 PPT 成品。首个管理员可继续访问升级前的本机会话、知识库和成品。账号与浏览器会话存放在 `.agent_data/auth/accounts.sqlite3`，成员资源存放在 `.agent_data/users/`。在界面删除聊天会让它退出会话列表，并保留原始历史文件。
+
+共享模式中的宿主机目录、文件工具、终端命令和 ChatGPT 套餐授权关闭。用户可以使用管理员配置的模型 API Key，也可以在模型设置里为当前页面输入自己的 Key。知识库使用后端 `config.yaml` 配置的向量模型和地址。
+
+向同伴开放时，由 HTTPS 反向代理在同一域名提供页面和 `/api`，并让后端仅信任该代理传来的协议标头。共享工作台使用单个 Web 进程运行，SSE 流和审批状态保存在进程内。仅在自己电脑上使用原有的目录与工具功能时，可用 `python -m agent_service.web_main --local` 在回环地址启动。
+
+### 天气、参考汇率与地图
+
+在启动后端或 CLI 的 PowerShell 进程中配置以下变量。密钥保留在服务端。
+
+| 功能 | 配置 |
+| --- | --- |
+| 天气和空气质量 | `QWEATHER_API_HOST` 填写和风天气控制台分配的 `*.qweatherapi.com` 域名，配合 `QWEATHER_API_KEY`。本机模式默认启用 Open-Meteo 公共 API。共享模式的非商业部署可以设置 `$env:OPEN_METEO_ENABLED = '1'`，商业部署设为 `'0'`。 [和风天气 API Host](https://dev.qweather.com/en/docs/configuration/api-host/) · [Open-Meteo 条款](https://open-meteo.com/en/terms) |
+| 参考汇率 | Frankfurter 免 Key，提供实际观测日期和最近 2～30 个自然日的观测序列。 [Frankfurter](https://frankfurter.dev/) |
+| 高德地点和路线 | `AMAP_API_KEY` 使用高德 Web 服务 Key。搜到地点后可用其 GCJ-02 坐标规划驾车、步行、骑行或公交，公交另需地点的 `city_code`。 [高德路线规划](https://lbs.amap.com/api/webservice/guide/api/newroute) |
+| OSM 地点和路线 | `NOMINATIM_BASE_URL` 配置自托管或已授权的地理编码端点。按需配置 `OSRM_DRIVING_BASE_URL`、`OSRM_WALKING_BASE_URL`、`OSRM_CYCLING_BASE_URL`，分别指向用相应出行模式构建的服务。URL 填服务根地址，工具使用 WGS84 坐标。 [Nominatim 搜索](https://nominatim.org/release-docs/latest/api/Search/) · [OSRM 模式](https://project-osrm.org/docs/v26.4.0/profiles) |
+
+OSRM 路径中的 profile 默认分别为 `driving`、`foot`、`bike`。若部署使用其他名称，设置对应的 `OSRM_DRIVING_PROFILE`、`OSRM_WALKING_PROFILE` 或 `OSRM_CYCLING_PROFILE`。
+
+## Web 工作台生成 PPT
+
+登录后，在首页点 **试做一份 PPT**，可以用内置的校园反诈示例体验完整流程。也可以直接输入主题，或上传资料后让工作台按资料制作。确认卡可以展开逐页内容，点 **生成 PPT** 后即可排版。成品支持下载，刷新会话后也能找回。排版服务支持 PDF 导出时，成品卡会提供整套预览。
+
+### 部署者首次配置
+
+提前为工作台配置一个可用的聊天模型和一个支持逐页 Markdown 输入的 Presenton 实例。在 Presenton 配置排版模型与图片提供商，在管理界面创建 API key。评委可使用预先开通的成员账号和服务端的模型配置。安装前端依赖后，从项目根目录运行以下 PowerShell 命令。 [Presenton 部署与 API](https://github.com/presenton/presenton)
+
+```powershell
+$env:PRESENTON_BASE_URL = 'http://127.0.0.1:5001'
+$env:PRESENTON_API_KEY = Read-Host '输入 Presenton API key' -MaskInput
+npm --prefix frontend run build -- --no-emptyOutDir
+& .venv\Scripts\python.exe -m agent_service.web_main
+```
+
+打开 `http://127.0.0.1:8000`，用成员账号跑一遍示例并下载 PPT。后端启动时会报告 PPT 工具是否挂载，也可以登录后在 `/api/health` 查看 `presentation_generation`。首页会根据后端是否挂载工具显示示例入口。在启动后端的同一个 PowerShell 窗口补齐缺少的变量后重启服务。
+
+如果 Presenton 支持将已有演示导出为 PDF，成品卡同时显示封面和整套 PDF 预览。只生成一次演示，预览复用同一份演示。 [Presenton PDF 导出接口](https://github.com/presenton/presenton/pull/831)
+
+## Web 工作台生成图片
+
+在启动后端的 PowerShell 窗口中配置百炼业务空间域名和同地域 API Key。工具使用 `qwen-image-3.0`。示例中的业务空间 ID 需要替换为百炼控制台里的实际值。 [百炼生图接口](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference)
+
+```powershell
+$env:DASHSCOPE_IMAGE_BASE_URL = 'https://你的业务空间ID.cn-beijing.maas.aliyuncs.com'
+$env:DASHSCOPE_API_KEY = Read-Host '输入百炼 API Key' -MaskInput
+npm --prefix frontend run build -- --no-emptyOutDir
+& .venv\Scripts\python.exe -m agent_service.web_main
+```
+
+选择 **＋ → 生成图片**，输入图片描述并按需选择宽高比，发送后直接调用百炼。自动模式可从描述中识别比例，未提供比例时使用 1:1。生成的 PNG 可以在聊天中放大和下载，刷新会话后仍可查看。也可以直接在普通聊天中请求生成图片。如果菜单显示「当前工作台未启用百炼生图」，请在运行 Web 后端的环境里补齐配置并重启。
 
 ## 代码结构
 

@@ -98,7 +98,7 @@ def contents_to_openai_messages(
     """将内核历史转换为 OpenAI 协议消息列表。
 
     关键约束：
-    1. 保留 `thought=True` 文本到 assistant 的 `reasoning_content`（DeepSeek V4 与 Kimi K3.1 Pro 工具调用强要求）。
+    1. 保留 `thought=True` 文本到 assistant 的 `reasoning_content`（DeepSeek、Kimi、GLM 与 Qwen 保留式思考及工具调用强要求）。
     2. 同一条 user Content 同时包含 `function_response` 与追加文本（如 `<runtime-notice>`）时，
        必须先发出所有 `role="tool"` 消息，再单独发出 `role="user"` 消息。
     """

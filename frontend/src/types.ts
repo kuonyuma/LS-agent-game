@@ -3,7 +3,7 @@ export type ReasoningEffort = "off" | "low" | "medium" | "high" | "xhigh" | "max
 
 export interface EffortVisual {
   level: ReasoningEffort;
-  effect: "glint" | "align" | "double_arc";
+  effect: "glint" | "bloom" | "align" | "double_arc" | "lattice" | "circuit";
   duration_ms: number;
 }
 
@@ -21,10 +21,15 @@ export interface ModelOption {
 export interface ProviderInfo {
   id: string;
   label: string;
-  protocol: "gemini" | "openai_compat";
+  protocol: "gemini" | "openai_compat" | "openai_responses";
+  auth_mode?: "api_key" | "chatgpt_oauth";
   base_url: string;
   env_key: string;
   env_configured: boolean;
+  oauth_connected?: boolean;
+  oauth_account?: string;
+  oauth_usage_url?: string;
+  oauth_models_error?: string;
   default_model: string;
   thinking_mode: "none" | "toggleable" | "always_on";
   json_mode: "json_object" | "json_schema";
@@ -35,6 +40,7 @@ export interface ToolInfo {
   name: string;
   description: string;
   read_only: boolean;
+  requires_approval?: boolean;
 }
 
 export interface WorkspaceDirectoryEntry {
@@ -124,11 +130,44 @@ export interface AttachmentPreview {
   text_content?: string;
 }
 
+export interface PresentationArtifact {
+  id: string;
+  filename: string;
+  slide_count: number;
+  download_url: string;
+  preview_url: string | null;
+  thumbnail_url: string | null;
+}
+
+export type ImageAspectRatio = "1:1" | "9:16" | "3:4" | "4:3" | "16:9";
+
+export interface ImageOptions {
+  aspect_ratio?: ImageAspectRatio;
+}
+
+export interface ImageArtifact {
+  id: string;
+  filename: string;
+  width: number;
+  height: number;
+  preview_url: string;
+  download_url: string;
+}
+
+export interface ImageSearchStatus {
+  serper_configured: boolean;
+  tavily_configured: boolean;
+  fallback: string;
+}
+
 export interface UIMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
   attachments?: AttachmentPreview[];
+  presentations?: PresentationArtifact[];
+  images?: ImageArtifact[];
+  verified_media_urls?: string[];
   provider?: string;
   model_name?: string;
   thinking?: string;
@@ -220,4 +259,11 @@ export interface RunSettings {
   maxTokens: number | null;
   systemPromptOverride: string;
   recentWorkspaces: string[];
+}
+
+export interface WebAccount {
+  id: string;
+  username: string;
+  role: "admin" | "user";
+  mode: "shared" | "local";
 }

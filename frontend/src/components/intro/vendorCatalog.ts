@@ -50,6 +50,7 @@ export interface VendorSpec {
     r: number,
     phase?: number,
     emphasis?: number,
+    dark?: boolean,
   ) => void;
   drawScene: (
     ctx: CanvasRenderingContext2D,
@@ -58,6 +59,7 @@ export interface VendorSpec {
     t: number,
     focus: number,
     show: number,
+    dark?: boolean,
   ) => void;
 }
 
@@ -176,6 +178,143 @@ export const DEFAULT_STUDIO: StudioTheme = {
   haloAlpha: 0.08,
 };
 
+export const DEFAULT_DARK_STUDIO: StudioTheme = {
+  bgCenter: [16, 15, 30],
+  bgEdge: [5, 6, 11],
+  haloA: [104, 74, 232],
+  haloB: [232, 166, 154],
+  haloAlpha: 0.16,
+};
+
+const DARK_PRIMARY_OVERRIDES: Partial<Record<VendorId, RgbColor>> = {
+  openai: [52, 211, 153],
+  kimi: [56, 189, 248],
+  qwen: [99, 132, 255],
+  grok: [226, 232, 245],
+  meta: [56, 152, 255],
+  glm: [45, 212, 191],
+};
+
+const DARK_TRAIL_OVERRIDES: Partial<Record<VendorId, TrailPalette>> = {
+  openai: {
+    head: [52, 211, 153],
+    mid: [110, 231, 183],
+    tail: [203, 213, 225],
+  },
+  kimi: {
+    head: [56, 189, 248],
+    mid: [125, 211, 252],
+    tail: [199, 210, 254],
+  },
+  qwen: {
+    head: [99, 132, 255],
+    mid: [147, 108, 250],
+    tail: [196, 138, 252],
+  },
+  grok: {
+    head: [226, 232, 245],
+    mid: [148, 163, 184],
+    tail: [56, 189, 248],
+  },
+  meta: {
+    head: [56, 152, 255],
+    mid: [56, 189, 248],
+    tail: [165, 224, 255],
+  },
+  glm: {
+    head: [45, 212, 191],
+    mid: [56, 189, 248],
+    tail: [165, 243, 252],
+  },
+};
+
+const DARK_STUDIO_OVERRIDES: Record<VendorId, StudioTheme> = {
+  gemini: {
+    bgCenter: [15, 19, 34],
+    bgEdge: [5, 6, 12],
+    haloA: [66, 133, 244],
+    haloB: [245, 182, 86],
+    haloAlpha: 0.16,
+  },
+  openai: {
+    bgCenter: [11, 22, 24],
+    bgEdge: [5, 7, 11],
+    haloA: [16, 185, 129],
+    haloB: [94, 234, 212],
+    haloAlpha: 0.15,
+  },
+  claude: {
+    bgCenter: [24, 16, 18],
+    bgEdge: [6, 6, 11],
+    haloA: [217, 119, 87],
+    haloB: [245, 178, 132],
+    haloAlpha: 0.16,
+  },
+  kimi: {
+    bgCenter: [12, 18, 34],
+    bgEdge: [5, 6, 12],
+    haloA: [38, 138, 255],
+    haloB: [56, 189, 248],
+    haloAlpha: 0.16,
+  },
+  deepseek: {
+    bgCenter: [13, 17, 36],
+    bgEdge: [5, 6, 12],
+    haloA: [77, 107, 254],
+    haloB: [14, 165, 233],
+    haloAlpha: 0.17,
+  },
+  qwen: {
+    bgCenter: [15, 16, 36],
+    bgEdge: [5, 6, 12],
+    haloA: [99, 132, 255],
+    haloB: [168, 85, 247],
+    haloAlpha: 0.16,
+  },
+  grok: {
+    bgCenter: [16, 18, 28],
+    bgEdge: [5, 6, 10],
+    haloA: [186, 198, 224],
+    haloB: [56, 189, 248],
+    haloAlpha: 0.14,
+  },
+  meta: {
+    bgCenter: [12, 19, 34],
+    bgEdge: [5, 6, 12],
+    haloA: [37, 134, 255],
+    haloB: [56, 189, 248],
+    haloAlpha: 0.16,
+  },
+  glm: {
+    bgCenter: [11, 21, 28],
+    bgEdge: [5, 7, 11],
+    haloA: [20, 184, 166],
+    haloB: [56, 189, 248],
+    haloAlpha: 0.15,
+  },
+};
+
+export function resolveVendorPrimary(vendor: VendorSpec, dark: boolean): RgbColor {
+  if (!dark) return vendor.primary;
+  return DARK_PRIMARY_OVERRIDES[vendor.id] ?? vendor.primary;
+}
+
+export function resolveVendorTrail(vendor: VendorSpec, dark: boolean): TrailPalette {
+  if (!dark) return vendor.trail;
+  return DARK_TRAIL_OVERRIDES[vendor.id] ?? vendor.trail;
+}
+
+export function resolveVendorStudio(vendor: VendorSpec, dark: boolean): StudioTheme {
+  if (!dark) return vendor.studio;
+  return DARK_STUDIO_OVERRIDES[vendor.id];
+}
+
+function sceneInk(dark: boolean, alpha: number): string {
+  return dark
+    ? `rgba(226, 232, 245, ${alpha})`
+    : `rgba(15, 23, 42, ${alpha})`;
+}
+
 /* ============================================================================
    官方高精度纯矢量品牌标识
    ============================================================================ */
@@ -237,6 +376,7 @@ export function drawOpenAIMark(
   r: number,
   phase = 0,
   emphasis = 0,
+  dark = false,
   revealPetals = 6,
 ): void {
   ctx.save();
@@ -255,7 +395,7 @@ export function drawOpenAIMark(
   const tanX = p * Math.cos(aTangent);
   const tanY = -c + p * Math.sin(aTangent);
 
-  ctx.strokeStyle = "#111827";
+  ctx.strokeStyle = dark ? "#F1F3FA" : "#111827";
   ctx.lineWidth = lw;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -324,13 +464,19 @@ export function drawKimiMark(
   r: number,
   phase = 0,
   emphasis = 0,
+  dark = false,
 ): void {
   ctx.save();
   const box = r * 1.66;
   const half = box * 0.5;
   roundedRectPath(ctx, -half, -half, box, box, box * 0.25);
-  ctx.fillStyle = "#090B0E";
+  ctx.fillStyle = dark ? "#161926" : "#090B0E";
   ctx.fill();
+  if (dark) {
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+    ctx.lineWidth = Math.max(0.85, r * 0.06);
+    ctx.stroke();
+  }
 
   const s = box / 44;
   ctx.scale(s, s);
@@ -424,12 +570,13 @@ export function drawQwenMark(
   r: number,
   phase = 0,
   emphasis = 0,
+  dark = false,
 ): void {
   ctx.save();
   ctx.rotate(phase * 0.25 * emphasis);
   const s = r / 24;
   ctx.scale(s, s);
-  ctx.fillStyle = "#0A3EFF";
+  ctx.fillStyle = dark ? "#5A7DFF" : "#0A3EFF";
 
   for (let i = 0; i < 3; i++) {
     ctx.save();
@@ -459,11 +606,12 @@ export function drawGrokMark(
   r: number,
   phase = 0,
   emphasis = 0,
+  dark = false,
 ): void {
   ctx.save();
   const s = r / 24;
   ctx.scale(s, s);
-  ctx.fillStyle = "#0B0D12";
+  ctx.fillStyle = dark ? "#F1F3FA" : "#0B0D12";
 
   ctx.beginPath();
   ctx.arc(0, 0, 15.6, Math.PI * 0.78, -Math.PI * 0.18, false);
@@ -533,11 +681,12 @@ export function drawGlmMark(
   r: number,
   phase = 0,
   emphasis = 0,
+  dark = false,
 ): void {
   ctx.save();
   const s = r / 22;
   ctx.scale(s, s);
-  ctx.fillStyle = "#111827";
+  ctx.fillStyle = dark ? "#F1F3FA" : "#111827";
 
   ctx.beginPath();
   ctx.moveTo(-17, -15.5);
@@ -583,7 +732,9 @@ export function drawCardAmbientBg(
   h: number,
   vendor: VendorSpec,
   focus: number,
+  dark = false,
 ): void {
+  const primary = resolveVendorPrimary(vendor, dark);
   const g1 = ctx.createRadialGradient(
     w * 0.18,
     h * 0.18,
@@ -592,9 +743,9 @@ export function drawCardAmbientBg(
     h * 0.18,
     Math.max(w, h) * 0.9,
   );
-  g1.addColorStop(0, rgba(vendor.primary, 0.055 + focus * 0.065));
-  g1.addColorStop(0.55, rgba(vendor.secondary, 0.02 + focus * 0.03));
-  g1.addColorStop(1, "rgba(255,255,255,0)");
+  g1.addColorStop(0, rgba(primary, dark ? 0.1 + focus * 0.11 : 0.055 + focus * 0.065));
+  g1.addColorStop(0.55, rgba(vendor.secondary, dark ? 0.04 + focus * 0.05 : 0.02 + focus * 0.03));
+  g1.addColorStop(1, dark ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)");
   ctx.fillStyle = g1;
   ctx.fillRect(0, 0, w, h);
 
@@ -606,8 +757,8 @@ export function drawCardAmbientBg(
     h * 0.85,
     Math.max(w, h) * 0.65,
   );
-  g2.addColorStop(0, rgba(vendor.accent, 0.045 + focus * 0.06));
-  g2.addColorStop(1, "rgba(255,255,255,0)");
+  g2.addColorStop(0, rgba(vendor.accent, dark ? 0.075 + focus * 0.085 : 0.045 + focus * 0.06));
+  g2.addColorStop(1, dark ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)");
   ctx.fillStyle = g2;
   ctx.fillRect(0, 0, w, h);
 }
@@ -769,6 +920,7 @@ function drawOpenAIScene(
   t: number,
   focus: number,
   show: number,
+  dark = false,
 ): void {
   const cx = w * 0.5;
   const cy = h * 0.5;
@@ -783,7 +935,7 @@ function drawOpenAIScene(
   if (focus > 0.08 && ignitePhase < 0.98) {
     const zeroR = unit * lerp(0.24, 0.02, easeInOutCubic(zeroPhase));
     const zeroA = (1 - ignitePhase) * focus;
-    ctx.strokeStyle = `rgba(17, 24, 39, ${0.8 * zeroA})`;
+    ctx.strokeStyle = sceneInk(dark, 0.8 * zeroA);
     ctx.lineWidth = 2.6;
     ctx.beginPath();
     ctx.arc(cx, cy, zeroR, 0, TAU);
@@ -800,7 +952,7 @@ function drawOpenAIScene(
       const alpha = (i % 2 === 0 ? 0.62 : 0.34) * (0.35 + focus * 0.65) * wave;
       ctx.strokeStyle = i % 2 === 0
         ? `rgba(16, 163, 127, ${alpha})`
-        : `rgba(17, 24, 39, ${alpha})`;
+        : sceneInk(dark, alpha);
       ctx.lineWidth = i % 2 === 0 ? 2.0 : 1.3;
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -827,7 +979,7 @@ function drawOpenAIScene(
       const rr = unit * (0.26 + p * 0.23);
       ctx.strokeStyle = k === 0
         ? `rgba(16, 163, 127, ${(1 - p) * 0.45 * (0.3 + focus * 0.7) * wave})`
-        : `rgba(17, 24, 39, ${(1 - p) * 0.26 * (0.3 + focus * 0.7) * wave})`;
+        : sceneInk(dark, (1 - p) * 0.28 * (0.3 + focus * 0.7) * wave);
       ctx.lineWidth = 1.4;
       ctx.beginPath();
       ctx.arc(cx, cy, rr, 0, TAU);
@@ -863,7 +1015,7 @@ function drawOpenAIScene(
     ctx.translate(cx, cy);
     const scaleIn = focus > 0.08 ? lerp(0.76, 1, easeSpringOut(genesisPhase)) : 1;
     ctx.scale(scaleIn, scaleIn);
-    drawOpenAIMark(ctx, unit * (0.215 + focus * 0.04), t, focus, petals);
+    drawOpenAIMark(ctx, unit * (0.215 + focus * 0.04), t, focus, dark, petals);
     ctx.restore();
   }
 }
@@ -876,6 +1028,7 @@ function drawClaudeScene(
   t: number,
   focus: number,
   show: number,
+  dark = false,
 ): void {
   const cx = w * 0.5;
   const cy = h * 0.5;
@@ -936,7 +1089,9 @@ function drawClaudeScene(
     } else {
       ctx.fillStyle = r.hi
         ? `rgba(217, 119, 87, ${0.34 + focus * 0.56})`
-        : `rgba(100, 82, 74, ${0.24 + focus * 0.32})`;
+        : dark
+          ? `rgba(218, 198, 186, ${0.22 + focus * 0.3})`
+          : `rgba(100, 82, 74, ${0.24 + focus * 0.32})`;
     }
     ctx.fill();
 
@@ -993,6 +1148,7 @@ function drawKimiScene(
   t: number,
   focus: number,
   show: number,
+  dark = false,
 ): void {
   const cx = w * 0.5;
   const cy = h * 0.5;
@@ -1021,7 +1177,9 @@ function drawKimiScene(
 
   ctx.save();
   const fogFade = 1 - solveP * 0.55;
-  ctx.strokeStyle = `rgba(15, 23, 42, ${(0.1 + focus * 0.12) * fogFade})`;
+  ctx.strokeStyle = dark
+    ? `rgba(148, 175, 224, ${(0.14 + focus * 0.16) * fogFade})`
+    : `rgba(15, 23, 42, ${(0.1 + focus * 0.12) * fogFade})`;
   ctx.lineWidth = 1;
   for (const [a, b] of meshEdges) {
     ctx.beginPath();
@@ -1032,13 +1190,17 @@ function drawKimiScene(
   for (const n of nodes) {
     ctx.beginPath();
     ctx.arc(n.x * w, n.y * h, unit * 0.013, 0, TAU);
-    ctx.fillStyle = `rgba(100, 116, 139, ${(0.32 + focus * 0.35) * fogFade})`;
+    ctx.fillStyle = dark
+      ? `rgba(168, 186, 224, ${(0.36 + focus * 0.38) * fogFade})`
+      : `rgba(100, 116, 139, ${(0.32 + focus * 0.35) * fogFade})`;
     ctx.fill();
   }
 
   const totalSegs = insightPath.length - 1;
   const progSeg = solveP * totalSegs;
-  ctx.strokeStyle = `rgba(22, 119, 255, ${0.42 + focus * 0.55})`;
+  ctx.strokeStyle = dark
+    ? `rgba(56, 189, 248, ${0.46 + focus * 0.52})`
+    : `rgba(22, 119, 255, ${0.42 + focus * 0.55})`;
   ctx.lineWidth = 2.2 + focus * 0.8;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -1062,13 +1224,15 @@ function drawKimiScene(
     const isFinal = i === insightPath.length - 1;
     ctx.beginPath();
     ctx.arc(pt.x * w, pt.y * h, unit * (isFinal ? 0.028 : 0.019) * lit, 0, TAU);
-    ctx.fillStyle = "#1677FF";
+    ctx.fillStyle = dark ? "#38BDF8" : "#1677FF";
     ctx.fill();
 
     if (isFinal && ahaP > 0.05 && focus > 0.1) {
       ctx.beginPath();
       ctx.arc(pt.x * w, pt.y * h, unit * (0.03 + ahaP * 0.095), 0, TAU);
-      ctx.strokeStyle = `rgba(22, 119, 255, ${(1 - ahaP) * 0.85 * focus})`;
+      ctx.strokeStyle = dark
+        ? `rgba(56, 189, 248, ${(1 - ahaP) * 0.85 * focus})`
+        : `rgba(22, 119, 255, ${(1 - ahaP) * 0.85 * focus})`;
       ctx.lineWidth = 1.8;
       ctx.stroke();
     }
@@ -1077,7 +1241,7 @@ function drawKimiScene(
 
   ctx.save();
   ctx.translate(cx, cy);
-  drawKimiMark(ctx, unit * (0.195 + focus * 0.032), t, focus);
+  drawKimiMark(ctx, unit * (0.195 + focus * 0.032), t, focus, dark);
   ctx.restore();
 }
 
@@ -1179,6 +1343,7 @@ function drawQwenScene(
   t: number,
   focus: number,
   show: number,
+  dark = false,
 ): void {
   const cx = w * 0.5;
   const cy = h * 0.5;
@@ -1186,6 +1351,7 @@ function drawQwenScene(
   const eqP = focus > 0.08 ? easeInOutCubic(smoothstep(0.1, 0.78, show)) : 0.92;
   const lockFlash = focus > 0.08 ? smoothstep(0.74, 0.98, show) : 0;
   const maxR = unit * 0.42;
+  const qwenRgb = dark ? "99, 132, 255" : "10, 62, 255";
 
   ctx.save();
   ctx.translate(cx, cy);
@@ -1201,7 +1367,7 @@ function drawQwenScene(
       else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.strokeStyle = `rgba(10, 62, 255, ${0.09 + focus * 0.09})`;
+    ctx.strokeStyle = `rgba(${qwenRgb}, ${dark ? 0.16 + focus * 0.14 : 0.09 + focus * 0.09})`;
     ctx.lineWidth = 1;
     ctx.stroke();
   }
@@ -1210,7 +1376,7 @@ function drawQwenScene(
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(Math.cos(a) * maxR, Math.sin(a) * maxR);
-    ctx.strokeStyle = `rgba(10, 62, 255, ${0.08 + focus * 0.08})`;
+    ctx.strokeStyle = `rgba(${qwenRgb}, ${dark ? 0.14 + focus * 0.12 : 0.08 + focus * 0.08})`;
     ctx.stroke();
   }
 
@@ -1229,27 +1395,27 @@ function drawQwenScene(
     else ctx.lineTo(pts[i].x, pts[i].y);
   }
   ctx.closePath();
-  ctx.fillStyle = `rgba(10, 62, 255, ${0.07 + focus * 0.09 + Math.sin(lockFlash * Math.PI) * 0.08})`;
+  ctx.fillStyle = `rgba(${qwenRgb}, ${(dark ? 0.12 : 0.07) + focus * 0.09 + Math.sin(lockFlash * Math.PI) * 0.08})`;
   ctx.fill();
-  ctx.strokeStyle = `rgba(10, 62, 255, ${0.46 + focus * 0.48})`;
+  ctx.strokeStyle = `rgba(${qwenRgb}, ${0.46 + focus * 0.48})`;
   ctx.lineWidth = 1.9;
   ctx.stroke();
 
   for (const pt of pts) {
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, unit * (0.017 + eqP * 0.008 * focus), 0, TAU);
-    ctx.fillStyle = "#0A3EFF";
+    ctx.fillStyle = dark ? "#6384FF" : "#0A3EFF";
     ctx.fill();
     if (lockFlash > 0.05 && focus > 0.1) {
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, unit * (0.02 + lockFlash * 0.045), 0, TAU);
-      ctx.strokeStyle = `rgba(59, 130, 246, ${(1 - lockFlash) * 0.75 * focus})`;
+      ctx.strokeStyle = `rgba(96, 165, 250, ${(1 - lockFlash) * 0.75 * focus})`;
       ctx.lineWidth = 1.3;
       ctx.stroke();
     }
   }
 
-  drawQwenMark(ctx, unit * (0.185 + focus * 0.03), t, focus);
+  drawQwenMark(ctx, unit * (0.185 + focus * 0.03), t, focus, dark);
   ctx.restore();
 }
 
@@ -1261,6 +1427,7 @@ function drawGrokScene(
   t: number,
   focus: number,
   show: number,
+  dark = false,
 ): void {
   const cx = w * 0.5;
   const cy = h * 0.5;
@@ -1275,7 +1442,7 @@ function drawGrokScene(
   const split = breakP * unit * 0.145;
   const cageAlpha = (0.78 - breakP * 0.32) * (0.45 + focus * 0.55);
 
-  ctx.strokeStyle = `rgba(15, 23, 42, ${cageAlpha})`;
+  ctx.strokeStyle = sceneInk(dark, cageAlpha);
   ctx.lineWidth = 2.5;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -1308,8 +1475,8 @@ function drawGrokScene(
       const d1 = d0 + unit * (0.065 + (1 - breakP) * 0.075);
       const sa = (0.45 + focus * 0.55) * (1 - breakP * 0.22);
       ctx.strokeStyle = i % 3 === 0
-        ? `rgba(14, 165, 233, ${sa})`
-        : `rgba(15, 23, 42, ${sa * 0.85})`;
+        ? `rgba(56, 189, 248, ${sa})`
+        : sceneInk(dark, sa * 0.85);
       ctx.lineWidth = 2.2;
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * d0, Math.sin(a) * d0);
@@ -1322,9 +1489,9 @@ function drawGrokScene(
     const ext = unit * 0.56 * slashP;
     const sA = Math.sin(clamp(slashP) * Math.PI) * (1 - breakP * 0.5) * focus;
     const sg = ctx.createLinearGradient(-ext, ext, ext, -ext);
-    sg.addColorStop(0, "rgba(15,23,42,0)");
-    sg.addColorStop(0.5, `rgba(14,165,233,${0.95 * sA})`);
-    sg.addColorStop(1, "rgba(15,23,42,0)");
+    sg.addColorStop(0, sceneInk(dark, 0));
+    sg.addColorStop(0.5, `rgba(56,189,248,${0.95 * sA})`);
+    sg.addColorStop(1, sceneInk(dark, 0));
     ctx.strokeStyle = sg;
     ctx.lineWidth = 2.6;
     ctx.beginPath();
@@ -1333,7 +1500,7 @@ function drawGrokScene(
     ctx.stroke();
   }
 
-  drawGrokMark(ctx, unit * (0.2 + focus * 0.032), t, focus);
+  drawGrokMark(ctx, unit * (0.2 + focus * 0.032), t, focus, dark);
   ctx.restore();
 }
 
@@ -1426,6 +1593,7 @@ function drawGlmScene(
   t: number,
   focus: number,
   show: number,
+  dark = false,
 ): void {
   const cx = w * 0.5;
   const cy = h * 0.5;
@@ -1440,9 +1608,9 @@ function drawGlmScene(
   const termH = h * 0.44;
   const termY = cy - termH * 0.5;
   roundedRectPath(ctx, termX, termY, termW, termH, 7);
-  ctx.fillStyle = `rgba(15, 23, 42, ${0.045 + focus * 0.04})`;
+  ctx.fillStyle = sceneInk(dark, dark ? 0.07 + focus * 0.05 : 0.045 + focus * 0.04);
   ctx.fill();
-  ctx.strokeStyle = `rgba(15, 23, 42, ${0.22 * vis})`;
+  ctx.strokeStyle = sceneInk(dark, (dark ? 0.26 : 0.22) * vis);
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
@@ -1465,8 +1633,8 @@ function drawGlmScene(
     const ly = py0 + i * (termH * 0.22);
     const lx = i === 0 ? px0 + 10 : px0;
     ctx.strokeStyle = i === 0
-      ? `rgba(15, 23, 42, ${0.72 * vis})`
-      : `rgba(14, 165, 233, ${0.62 * vis})`;
+      ? sceneInk(dark, 0.72 * vis)
+      : `rgba(56, 189, 248, ${0.68 * vis})`;
     ctx.lineWidth = 2.0;
     ctx.beginPath();
     ctx.moveTo(lx, ly);
@@ -1526,7 +1694,7 @@ function drawGlmScene(
 
   ctx.save();
   ctx.translate(cx, cy);
-  drawGlmMark(ctx, unit * (0.18 + focus * 0.03), t, focus);
+  drawGlmMark(ctx, unit * (0.18 + focus * 0.03), t, focus, dark);
   ctx.restore();
 }
 

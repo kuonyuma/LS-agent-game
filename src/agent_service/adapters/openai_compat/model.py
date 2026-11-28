@@ -9,7 +9,14 @@ from agent_service.adapters.openai_compat.translator import (
     parse_tool_arguments,
     tools_to_openai,
 )
-from agent_service.config.settings import ProviderConfig, resolve_api_key
+from agent_service.config.settings import (
+    ProviderConfig,
+    model_supports_reasoning_effort,
+    resolve_api_key,
+    resolve_model_thinking_level,
+    resolve_model_thinking_mode,
+    resolve_thinking_param_style,
+)
 from agent_service.errors import AgentRuntimeError, ConfigurationError
 from agent_service.kernel.model.port import StreamEvent, StreamResult
 
@@ -26,7 +33,7 @@ def _normalize_openai_effort(level: str) -> Literal["low", "high", "max"]:
 
 
 class OpenAICompatibleModel:
-    """基于官方 OpenAI SDK 适配 DeepSeek、Kimi 等 OpenAI 协议模型。"""
+    """基于官方 OpenAI SDK 适配 DeepSeek、Kimi、GLM、Qwen 等 OpenAI 协议模型。"""
 
     def __init__(
         self,
@@ -65,24 +72,79 @@ class OpenAICompatibleModel:
         )
         return self._client
 
+    def _resolve_effort_value(self) -> str:
+        option = next(
+            (m for m in self.provider.models if m.id == self.model_name), None
+        )
+        thinking_off = (not self.thinking_enabled) or self.reasoning_effort == "off"
+        if option is not None:
+            active_levels = tuple(lv for lv in option.thinking_levels if lv != "off")
+            if active_levels:
+                requested = "low" if thinking_off else self.reasoning_effort
+                resolved = resolve_model_thinking_level(
+                    self.provider,
+                    self.model_name,
+                    requested,
+                    thinking_enabled=True,
+                )
+                return resolved if resolved != "off" else active_levels[0]
+        if thinking_off:
+            return "low"
+        return _normalize_openai_effort(self.reasoning_effort)
+
     def _build_extra_body(self) -> dict[str, Any]:
+        model_thinking_mode = resolve_model_thinking_mode(
+            self.provider, self.model_name
+        )
+        style = resolve_thinking_param_style(self.provider, self.model_name)
+        if style is None:
+            return {}
+
         extra: dict[str, Any] = {}
         thinking_off = (not self.thinking_enabled) or self.reasoning_effort == "off"
-        if self.provider.thinking_mode == "toggleable":
-            if not thinking_off:
-                extra["thinking"] = {"type": "enabled"}
-                extra["reasoning_effort"] = _normalize_openai_effort(
-                    self.reasoning_effort
-                )
-            else:
-                extra["thinking"] = {"type": "disabled"}
-        elif self.provider.thinking_mode == "always_on":
-            effort = (
-                "low"
-                if thinking_off
-                else _normalize_openai_effort(self.reasoning_effort)
-            )
-            extra["reasoning_effort"] = effort
+        supports_effort = model_supports_reasoning_effort(
+            self.provider, self.model_name
+        )
+
+        if model_thinking_mode == "toggleable":
+            if thinking_off:
+                if style == "enable_thinking":
+                    extra["enable_thinking"] = False
+                elif style == "thinking_object":
+                    extra["thinking"] = {"type": "disabled"}
+                return extra
+
+            effort = self._resolve_effort_value()
+            if style == "enable_thinking":
+                extra["enable_thinking"] = True
+                if supports_effort:
+                    extra["reasoning_effort"] = effort
+            elif style == "thinking_object":
+                thinking_payload: dict[str, Any] = {"type": "enabled"}
+                if self.provider.preserve_thinking:
+                    thinking_payload["clear_thinking"] = False
+                extra["thinking"] = thinking_payload
+                if supports_effort:
+                    extra["reasoning_effort"] = effort
+            elif supports_effort:
+                extra["reasoning_effort"] = effort
+            return extra
+
+        if model_thinking_mode == "always_on":
+            effort = self._resolve_effort_value()
+            if style == "thinking_object":
+                thinking_payload = {"type": "enabled"}
+                if self.provider.preserve_thinking:
+                    thinking_payload["clear_thinking"] = False
+                extra["thinking"] = thinking_payload
+                if supports_effort:
+                    extra["reasoning_effort"] = effort
+            elif style == "enable_thinking":
+                extra["enable_thinking"] = True
+                if supports_effort:
+                    extra["reasoning_effort"] = effort
+            elif supports_effort:
+                extra["reasoning_effort"] = effort
         return extra
 
     async def stream(
@@ -102,8 +164,9 @@ class OpenAICompatibleModel:
             "messages": cast(Any, messages),
             "max_tokens": max_tokens,
             "stream": True,
-            "stream_options": {"include_usage": True},
         }
+        if self.provider.include_stream_usage:
+            request_kwargs["stream_options"] = {"include_usage": True}
         if openai_tools:
             request_kwargs["tools"] = cast(Any, openai_tools)
         extra_body = self._build_extra_body()

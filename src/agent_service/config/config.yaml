@@ -4,6 +4,9 @@ model:
   max_tokens: 65536
   key: "your..."
 
+image_generation:
+  model: qwen-image-3.0
+
 embedding:
   provider: gemini
   model: gemini-embedding-2
@@ -118,3 +121,172 @@ providers:
           - max
         default_thinking_level: max
         effort_visual: {level: max, effect: double_arc, duration_ms: 880}
+  glm:
+    label: "GLM (智谱)"
+    protocol: openai_compat
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    env_key: ZHIPU_API_KEY
+    default_model: glm-5.3
+    thinking_mode: always_on
+    thinking_param_style: thinking_object
+    preserve_thinking: true
+    include_stream_usage: false
+    json_mode: json_object
+    models:
+      - id: glm-5.3
+        label: "GLM-5.3"
+        supports_vision: false
+        supports_thinking: true
+        max_output_tokens: 131072
+        thinking_levels:
+          - low
+          - high
+          - max
+        default_thinking_level: max
+        effort_visual: {level: max, effect: circuit, duration_ms: 920}
+      - id: glm-5.3-flash
+        label: "GLM-5.3 Flash"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        thinking_levels:
+          - low
+          - high
+          - max
+        default_thinking_level: max
+        effort_visual: {level: max, effect: circuit, duration_ms: 920}
+      - id: glm-5.3-flashx
+        label: "GLM-5.3 FlashX"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        thinking_levels:
+          - low
+          - high
+          - max
+        default_thinking_level: max
+        effort_visual: {level: max, effect: circuit, duration_ms: 920}
+      - id: glm-5.4
+        label: "GLM-5.4"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        thinking_levels:
+          - low
+          - high
+          - max
+        default_thinking_level: max
+        effort_visual: {level: max, effect: circuit, duration_ms: 920}
+      - id: glm-4.7-flash
+        label: "GLM-4.7 Flash (免费)"
+        supports_vision: false
+        supports_thinking: true
+        thinking_mode: toggleable
+        supports_reasoning_effort: false
+        max_output_tokens: 131072
+        non_thinking_max_output_tokens: 131072
+        thinking_levels:
+          - "off"
+          - high
+        default_thinking_level: high
+  openai:
+    label: "OpenAI (ChatGPT)"
+    protocol: openai_responses
+    auth_mode: chatgpt_oauth
+    base_url: "https://api.openai.com/v1"
+    env_key: OPENAI_API_KEY
+    default_model: gpt-5.4
+    thinking_mode: toggleable
+    json_mode: json_schema
+    models:
+      - id: gpt-5.4
+        label: "GPT-5.4"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 128000
+        non_thinking_max_output_tokens: 128000
+        thinking_levels:
+          - low
+          - medium
+          - high
+          - xhigh
+        default_thinking_level: high
+        effort_visual: {level: xhigh, effect: bloom, duration_ms: 920}
+      - id: gpt-5.4-mini
+        label: "GPT-5.4 Mini"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 128000
+        non_thinking_max_output_tokens: 128000
+        thinking_levels:
+          - low
+          - medium
+          - high
+        default_thinking_level: medium
+  qwen:
+    label: "Qwen (阿里云百炼)"
+    protocol: openai_compat
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    env_key: DASHSCOPE_API_KEY
+    default_model: qwen4-max
+    thinking_mode: toggleable
+    thinking_param_style: enable_thinking
+    include_stream_usage: true
+    json_mode: json_schema
+    models:
+      - id: qwen4-max
+        label: "Qwen4 Max"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 262144
+        non_thinking_max_output_tokens: 131072
+        thinking_levels:
+          - "off"
+          - low
+          - medium
+          - high
+          - xhigh
+        default_thinking_level: high
+        effort_visual: {level: xhigh, effect: lattice, duration_ms: 920}
+      - id: qwen3.8-max
+        label: "Qwen3.8 Max"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        non_thinking_max_output_tokens: 131072
+        thinking_levels:
+          - "off"
+          - low
+          - medium
+          - high
+          - xhigh
+        default_thinking_level: high
+        effort_visual: {level: xhigh, effect: lattice, duration_ms: 920}
+      - id: qwen3.7-plus
+        label: "Qwen3.7 Plus"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        non_thinking_max_output_tokens: 131072
+        thinking_levels:
+          - "off"
+          - low
+          - medium
+          - high
+          - xhigh
+        default_thinking_level: high
+        effort_visual: {level: xhigh, effect: lattice, duration_ms: 920}
+      - id: qwen3.8-flash
+        label: "Qwen3.8 Flash"
+        supports_vision: true
+        supports_thinking: true
+        max_output_tokens: 131072
+        non_thinking_max_output_tokens: 131072
+        thinking_levels:
+          - "off"
+          - low
+          - medium
+          - high
+          - xhigh
+        default_thinking_level: medium
+        effort_visual: {level: xhigh, effect: lattice, duration_ms: 920}

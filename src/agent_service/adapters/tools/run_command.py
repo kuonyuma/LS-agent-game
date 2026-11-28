@@ -1,9 +1,22 @@
 import asyncio
+import codecs
+import locale
 import subprocess
 from typing import Any, ClassVar
 
 from agent_service.adapters.security.workspace import WorkspacePathPolicy
 from agent_service.kernel.dispatch.base import Tool, ToolResult
+
+
+def _decode_output(data: bytes) -> str:
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        text = data.decode("utf-16", errors="replace")
+    else:
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = data.decode(locale.getencoding(), errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 class RunCommandTool(Tool):
@@ -34,24 +47,22 @@ class RunCommandTool(Tool):
         if command == "":
             return ToolResult(is_error=True, content="执行的命令command为空")
 
-        run_kwargs: dict[str, Any] = {
-            "shell": True,
-            "capture_output": True,
-            "text": True,
-            "check": False,
-        }
-        if self.workspace is not None:
-            run_kwargs["cwd"] = str(self.workspace.root)
-
+        cwd = str(self.workspace.root) if self.workspace is not None else None
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
                 command,
-                **run_kwargs,
+                shell=True,
+                capture_output=True,
+                # 先捕获字节，避免默认编码错误让读取线程丢掉整段输出。
+                text=False,
+                check=False,
+                cwd=cwd,
             )
         except OSError as exc:
             return ToolResult(content=f"执行命令出错\n错误信息:{exc}", is_error=True)
 
-        out = result.stdout + result.stderr + f"returncode{result.returncode}"
+        out = _decode_output(result.stdout) + _decode_output(result.stderr)
+        out += f"returncode{result.returncode}"
 
         return ToolResult(content=out, is_error=result.returncode != 0)

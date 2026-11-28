@@ -10,13 +10,14 @@ from agent_service.kernel.dispatch.base import Tool
 from agent_service.kernel.runtime.control import RunControl
 from agent_service.kernel.strategy.plan import ExecutionPlan
 
-SubagentRole = Literal["default", "worker", "explorer", "monitor"]
+SubagentRole = Literal["default", "worker", "explorer", "researcher", "monitor"]
 SubagentStatus = Literal["running", "completed", "failed"]
 
 VALID_SUBAGENT_ROLES: tuple[SubagentRole, ...] = (
     "default",
     "worker",
     "explorer",
+    "researcher",
     "monitor",
 )
 
@@ -46,10 +47,10 @@ ROLE_PROFILES: dict[SubagentRole, AgentRoleProfile] = {
         system_prompt_addon=(
             "## 子代理角色：Explorer（只读探索与取证专家）\n"
             "你是一个专注于代码追踪与证据搜集的只读子代理。\n"
-            "- 仅使用只读工具（`list_files`、`read_file`、`load_yaml`、`web_search`、`fetch_web_page`）快速定位目标文件、函数定义、调用链或外部技术文档。\n"
+            "- 仅使用只读工具（`list_files`、`read_file`、`load_yaml`、`web_search`、`fetch_web_page`、`search_papers`、`inspect_paper`、`read_paper_fulltext`）快速定位目标文件、函数定义、调用链、外部文档或学术文献。\n"
             "- 如需检索网络技术资料，先用 `web_search` 获取候选列表，再对关键链接调用 `fetch_web_page` 深入阅读。\n"
             "- 不要尝试修改任何文件或执行外部命令。\n"
-            "- 完成探索后，向主代理输出精炼、结构化的证据报告，必须包含准确的文件路径（或来源 URL）、关键符号与核心结论。"
+            "- 完成探索后，向主代理输出精炼、结构化的证据报告，必须包含准确的文件路径（或来源 URL / `paper_id`）、关键符号与核心结论。"
         ),
         allowed_tools=frozenset(
             {
@@ -58,7 +59,38 @@ ROLE_PROFILES: dict[SubagentRole, AgentRoleProfile] = {
                 "load_yaml",
                 "web_search",
                 "fetch_web_page",
+                "search_papers",
+                "inspect_paper",
+                "read_paper_fulltext",
                 "search_knowledge_base",
+            }
+        ),
+        max_turns=None,
+        plan_and_execute=False,
+        graceful_final_turn=True,
+        read_only_role=True,
+    ),
+    "researcher": AgentRoleProfile(
+        role="researcher",
+        title="CS 科研文献子代理",
+        description="只读 CS 学术检索、引文图谱追踪与论文全文精读代理。",
+        system_prompt_addon=(
+            "## 子代理角色：Researcher（CS 科研文献调研与精读专家）\n"
+            "你是一个专注于计算机科学文献检索、引文核验与论文精读的只读子代理。\n"
+            "- 优先使用 `search_papers`（传入规范英文 CS 检索词）、`inspect_paper`（核验顶会发表状态/被引/引文图谱/BibTeX）和 `read_paper_fulltext`（先 `outline` 看目录，再按 `section`/`query` 精读 Method、Experiments 与 Limitations）。\n"
+            "- 严禁仅凭摘要编造论文方法、公式、实验指标或未核验的 DOI / arXiv ID。\n"
+            "- 完成调研后，向主代理输出精炼、可溯源的证据报告：每条关键结论必须附带真实的 `paper_id`（arXiv ID 或 DOI）、发表场所/年份、章节或页码，以及已提取的官方代码仓库链接（如有）。"
+        ),
+        allowed_tools=frozenset(
+            {
+                "search_papers",
+                "inspect_paper",
+                "read_paper_fulltext",
+                "web_search",
+                "fetch_web_page",
+                "search_knowledge_base",
+                "list_files",
+                "read_file",
             }
         ),
         max_turns=None,

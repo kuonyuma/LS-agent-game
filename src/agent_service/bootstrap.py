@@ -14,6 +14,11 @@ from agent_service.adapters.openai_compat.model import (
     ReasoningEffort,
 )
 from agent_service.adapters.openai_compat.reviewer import OpenAICompatibleTextReviewer
+from agent_service.adapters.openai_responses.auth import ChatGPTAuthManager
+from agent_service.adapters.openai_responses.model import OpenAIResponsesModel
+from agent_service.adapters.openai_responses.reviewer import (
+    OpenAIResponsesTextReviewer,
+)
 from agent_service.adapters.security.coordinator import RunCoordinator
 from agent_service.adapters.security.reviewer import (
     GeminiTextReviewer,
@@ -49,6 +54,7 @@ def create_model_gateway(
     provider: str | None = None,
     model_name: str | None = None,
     api_key: str | None = None,
+    chatgpt_auth: ChatGPTAuthManager | None = None,
     thinking_enabled: bool = True,
     reasoning_effort: ReasoningEffort = "high",
 ) -> ModelGateway:
@@ -72,6 +78,15 @@ def create_model_gateway(
             api_key=api_key,
             thinking_level=resolved_level,
         )
+    if provider_cfg.protocol == "openai_responses":
+        return OpenAIResponsesModel(
+            provider_cfg,
+            model_name=active_model,
+            api_key=api_key,
+            auth_manager=chatgpt_auth,
+            thinking_enabled=resolved_level != "off",
+            reasoning_effort=cast(ReasoningEffort, resolved_level),
+        )
     return OpenAICompatibleModel(
         provider_cfg,
         model_name=active_model,
@@ -86,6 +101,7 @@ def create_text_reviewer(
     provider: str | None = None,
     model_name: str | None = None,
     api_key: str | None = None,
+    chatgpt_auth: ChatGPTAuthManager | None = None,
     enabled: bool = True,
 ) -> TextReviewer:
     """构造与当前模型厂商匹配的输出安全审核器。"""
@@ -100,6 +116,13 @@ def create_text_reviewer(
     )
     if provider_cfg.protocol == "gemini":
         return GeminiTextReviewer(model_name=active_model, api_key=api_key)
+    if provider_cfg.protocol == "openai_responses":
+        return OpenAIResponsesTextReviewer(
+            provider_cfg,
+            model_name=active_model,
+            api_key=api_key,
+            auth_manager=chatgpt_auth,
+        )
     return OpenAICompatibleTextReviewer(
         provider_cfg,
         model_name=active_model,

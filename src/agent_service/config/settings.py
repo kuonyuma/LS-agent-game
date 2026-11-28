@@ -1,4 +1,6 @@
 import os
+import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from math import isfinite  # isfinite(value) 用来判断一个数是不是有限数
 from pathlib import Path
@@ -8,12 +10,33 @@ import yaml
 
 _CONFIG_DIR = Path(__file__).parent
 
-ProviderProtocol = Literal["gemini", "openai_compat"]
+ProviderProtocol = Literal["gemini", "openai_compat", "openai_responses"]
+AuthMode = Literal["api_key", "chatgpt_oauth"]
 ThinkingMode = Literal["none", "toggleable", "always_on"]
+ThinkingParamStyle = Literal[
+    "thinking_object", "enable_thinking", "reasoning_effort_only"
+]
 JsonOutputMode = Literal["json_object", "json_schema"]
 ThinkingLevelValue = Literal["off", "low", "medium", "high", "xhigh", "max"]
 EmbeddingProviderType = Literal["gemini", "openai_compat", "ollama"]
-EffortVisualEffect = Literal["glint", "align", "double_arc"]
+EffortVisualEffect = Literal[
+    "glint", "bloom", "align", "double_arc", "lattice", "circuit"
+]
+
+VALID_THINKING_PARAM_STYLES: tuple[ThinkingParamStyle, ...] = (
+    "thinking_object",
+    "enable_thinking",
+    "reasoning_effort_only",
+)
+
+VALID_EFFORT_VISUAL_EFFECTS: tuple[EffortVisualEffect, ...] = (
+    "glint",
+    "bloom",
+    "align",
+    "double_arc",
+    "lattice",
+    "circuit",
+)
 
 VALID_THINKING_LEVELS: tuple[ThinkingLevelValue, ...] = (
     "off",
@@ -47,9 +70,12 @@ class ModelOption:
     label: str
     supports_vision: bool = False
     supports_thinking: bool = False
+    thinking_mode: ThinkingMode | None = None
+    supports_reasoning_effort: bool = True
     thinking_levels: tuple[str, ...] = ()
     default_thinking_level: str = ""
     max_output_tokens: int = 65536
+    non_thinking_max_output_tokens: int | None = None
     effort_visual: EffortVisual | None = None
 
 
@@ -60,9 +86,13 @@ class ProviderConfig:
     protocol: ProviderProtocol
     env_key: str
     default_model: str
+    auth_mode: AuthMode = "api_key"
     base_url: str = ""
     key: str = ""
     thinking_mode: ThinkingMode = "none"
+    thinking_param_style: ThinkingParamStyle | None = None
+    preserve_thinking: bool = False
+    include_stream_usage: bool = True
     json_mode: JsonOutputMode = "json_object"
     models: tuple[ModelOption, ...] = ()
 
@@ -141,6 +171,7 @@ class AppConfig:
     safety: SafetyConfig
     safety_prompt: str
     embedding: EmbeddingConfig = EmbeddingConfig()
+    image_generation_model: str = ""
 
 
 def _default_thinking_levels(
@@ -268,6 +299,183 @@ def _default_providers(model_name: str, model_key: str) -> dict[str, ProviderCon
                 ),
             ),
         ),
+        "glm": ProviderConfig(
+            id="glm",
+            label="GLM (智谱)",
+            protocol="openai_compat",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            env_key="ZHIPU_API_KEY",
+            default_model="glm-5.3",
+            thinking_mode="always_on",
+            thinking_param_style="thinking_object",
+            preserve_thinking=True,
+            include_stream_usage=False,
+            json_mode="json_object",
+            models=(
+                ModelOption(
+                    id="glm-5.3",
+                    label="GLM-5.3",
+                    supports_vision=False,
+                    supports_thinking=True,
+                    thinking_levels=("low", "high", "max"),
+                    default_thinking_level="max",
+                    max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="max", effect="circuit", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="glm-5.3-flash",
+                    label="GLM-5.3 Flash",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("low", "high", "max"),
+                    default_thinking_level="max",
+                    max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="max", effect="circuit", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="glm-5.3-flashx",
+                    label="GLM-5.3 FlashX",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("low", "high", "max"),
+                    default_thinking_level="max",
+                    max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="max", effect="circuit", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="glm-5.4",
+                    label="GLM-5.4",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("low", "high", "max"),
+                    default_thinking_level="max",
+                    max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="max", effect="circuit", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="glm-4.7-flash",
+                    label="GLM-4.7 Flash (免费)",
+                    supports_vision=False,
+                    supports_thinking=True,
+                    thinking_mode="toggleable",
+                    supports_reasoning_effort=False,
+                    thinking_levels=("off", "high"),
+                    default_thinking_level="high",
+                    max_output_tokens=131072,
+                    non_thinking_max_output_tokens=131072,
+                ),
+            ),
+        ),
+        "openai": ProviderConfig(
+            id="openai",
+            label="OpenAI (ChatGPT)",
+            protocol="openai_responses",
+            auth_mode="chatgpt_oauth",
+            base_url="https://api.openai.com/v1",
+            env_key="OPENAI_API_KEY",
+            default_model="gpt-5.4",
+            thinking_mode="toggleable",
+            json_mode="json_schema",
+            models=(
+                ModelOption(
+                    id="gpt-5.4",
+                    label="GPT-5.4",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("low", "medium", "high", "xhigh"),
+                    default_thinking_level="high",
+                    max_output_tokens=128000,
+                    non_thinking_max_output_tokens=128000,
+                    effort_visual=EffortVisual(
+                        level="xhigh", effect="bloom", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="gpt-5.4-mini",
+                    label="GPT-5.4 Mini",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("low", "medium", "high"),
+                    default_thinking_level="medium",
+                    max_output_tokens=128000,
+                    non_thinking_max_output_tokens=128000,
+                ),
+            ),
+        ),
+        "qwen": ProviderConfig(
+            id="qwen",
+            label="Qwen (阿里云百炼)",
+            protocol="openai_compat",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            env_key="DASHSCOPE_API_KEY",
+            default_model="qwen4-max",
+            thinking_mode="toggleable",
+            thinking_param_style="enable_thinking",
+            include_stream_usage=True,
+            json_mode="json_schema",
+            models=(
+                ModelOption(
+                    id="qwen4-max",
+                    label="Qwen4 Max",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("off", "low", "medium", "high", "xhigh"),
+                    default_thinking_level="high",
+                    max_output_tokens=262144,
+                    non_thinking_max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="xhigh", effect="lattice", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="qwen3.8-max",
+                    label="Qwen3.8 Max",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("off", "low", "medium", "high", "xhigh"),
+                    default_thinking_level="high",
+                    max_output_tokens=131072,
+                    non_thinking_max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="xhigh", effect="lattice", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="qwen3.7-plus",
+                    label="Qwen3.7 Plus",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("off", "low", "medium", "high", "xhigh"),
+                    default_thinking_level="high",
+                    max_output_tokens=131072,
+                    non_thinking_max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="xhigh", effect="lattice", duration_ms=920
+                    ),
+                ),
+                ModelOption(
+                    id="qwen3.8-flash",
+                    label="Qwen3.8 Flash",
+                    supports_vision=True,
+                    supports_thinking=True,
+                    thinking_levels=("off", "low", "medium", "high", "xhigh"),
+                    default_thinking_level="medium",
+                    max_output_tokens=131072,
+                    non_thinking_max_output_tokens=131072,
+                    effort_visual=EffortVisual(
+                        level="xhigh", effect="lattice", duration_ms=920
+                    ),
+                ),
+            ),
+        ),
     }
 
 
@@ -286,13 +494,38 @@ def _parse_providers(
         if not isinstance(provider_id, str) or not isinstance(item, dict):
             raise TypeError("providers 下的每一项必须为字符串键和对象值")
         protocol = item.get("protocol")
-        if protocol not in ("gemini", "openai_compat"):
+        if protocol not in ("gemini", "openai_compat", "openai_responses"):
             raise ValueError(f"厂商 `{provider_id}` 的 protocol 无效：{protocol}")
+        auth_mode = item.get("auth_mode", "api_key")
+        if auth_mode not in ("api_key", "chatgpt_oauth"):
+            raise ValueError(f"厂商 `{provider_id}` 的 auth_mode 无效：{auth_mode}")
         thinking_mode = item.get("thinking_mode", "none")
         if thinking_mode not in ("none", "toggleable", "always_on"):
             raise ValueError(
                 f"厂商 `{provider_id}` 的 thinking_mode 无效：{thinking_mode}"
             )
+        raw_thinking_style = item.get("thinking_param_style")
+        thinking_param_style: ThinkingParamStyle | None = None
+        if raw_thinking_style is not None:
+            if (
+                not isinstance(raw_thinking_style, str)
+                or raw_thinking_style not in VALID_THINKING_PARAM_STYLES
+            ):
+                raise ValueError(
+                    f"厂商 `{provider_id}` 的 thinking_param_style 无效：{raw_thinking_style}"
+                )
+            thinking_param_style = cast(ThinkingParamStyle, raw_thinking_style)
+
+        raw_preserve_thinking = item.get("preserve_thinking", False)
+        if not isinstance(raw_preserve_thinking, bool):
+            raise TypeError(f"厂商 `{provider_id}` 的 preserve_thinking 必须是布尔值")
+
+        raw_include_stream_usage = item.get("include_stream_usage", True)
+        if not isinstance(raw_include_stream_usage, bool):
+            raise TypeError(
+                f"厂商 `{provider_id}` 的 include_stream_usage 必须是布尔值"
+            )
+
         json_mode = item.get("json_mode", "json_object")
         if json_mode not in ("json_object", "json_schema"):
             raise ValueError(f"厂商 `{provider_id}` 的 json_mode 无效：{json_mode}")
@@ -307,10 +540,30 @@ def _parse_providers(
             ):
                 raise TypeError(f"厂商 `{provider_id}` 的模型项格式无效")
             supports_thinking = bool(raw_model.get("supports_thinking", False))
+            raw_model_thinking_mode = raw_model.get("thinking_mode")
+            model_thinking_mode: ThinkingMode | None = None
+            if raw_model_thinking_mode is not None:
+                if raw_model_thinking_mode not in ("none", "toggleable", "always_on"):
+                    raise ValueError(
+                        f"厂商 `{provider_id}` 模型 `{raw_model['id']}` 的 "
+                        f"thinking_mode 无效：{raw_model_thinking_mode}"
+                    )
+                model_thinking_mode = cast(ThinkingMode, raw_model_thinking_mode)
+
+            raw_supports_effort = raw_model.get("supports_reasoning_effort", True)
+            if not isinstance(raw_supports_effort, bool):
+                raise TypeError(
+                    f"厂商 `{provider_id}` 模型 `{raw_model['id']}` 的 "
+                    "supports_reasoning_effort 必须是布尔值"
+                )
+
+            effective_model_thinking_mode = cast(
+                ThinkingMode, model_thinking_mode or thinking_mode
+            )
             raw_levels = raw_model.get("thinking_levels")
             if raw_levels is None:
                 levels, fallback_default = _default_thinking_levels(
-                    cast(ThinkingMode, thinking_mode), supports_thinking
+                    effective_model_thinking_mode, supports_thinking
                 )
             else:
                 if not isinstance(raw_levels, list):
@@ -353,7 +606,7 @@ def _parse_providers(
                 duration_ms = raw_visual.get("duration_ms")
                 if visual_level not in levels:
                     raise ValueError(f"{model_context} 的动效档位必须在允许列表中")
-                if visual_effect not in ("glint", "align", "double_arc"):
+                if visual_effect not in VALID_EFFORT_VISUAL_EFFECTS:
                     raise ValueError(f"{model_context} 的动效类型无效：{visual_effect}")
                 if type(duration_ms) is not int or duration_ms <= 0:
                     raise ValueError(f"{model_context} 的动效时长必须是正整数")
@@ -373,15 +626,32 @@ def _parse_providers(
                     f"厂商 `{provider_id}` 模型 `{raw_model['id']}` 的 max_output_tokens 无效：{raw_max_output}"
                 )
 
+            raw_non_thinking_max = raw_model.get("non_thinking_max_output_tokens")
+            non_thinking_max_output: int | None = None
+            if raw_non_thinking_max is not None:
+                if (
+                    isinstance(raw_non_thinking_max, bool)
+                    or not isinstance(raw_non_thinking_max, int)
+                    or raw_non_thinking_max < 256
+                ):
+                    raise ValueError(
+                        f"厂商 `{provider_id}` 模型 `{raw_model['id']}` 的 "
+                        f"non_thinking_max_output_tokens 无效：{raw_non_thinking_max}"
+                    )
+                non_thinking_max_output = raw_non_thinking_max
+
             models.append(
                 ModelOption(
                     id=raw_model["id"],
                     label=str(raw_model.get("label") or raw_model["id"]),
                     supports_vision=bool(raw_model.get("supports_vision", False)),
                     supports_thinking=supports_thinking,
+                    thinking_mode=model_thinking_mode,
+                    supports_reasoning_effort=raw_supports_effort,
                     thinking_levels=levels,
                     default_thinking_level=default_level,
                     max_output_tokens=raw_max_output,
+                    non_thinking_max_output_tokens=non_thinking_max_output,
                     effort_visual=effort_visual,
                 )
             )
@@ -398,15 +668,61 @@ def _parse_providers(
             id=provider_id,
             label=str(item.get("label") or provider_id),
             protocol=cast(ProviderProtocol, protocol),
+            auth_mode=cast(AuthMode, auth_mode),
             env_key=str(item.get("env_key") or ""),
             default_model=default_model,
             base_url=str(item.get("base_url") or ""),
             key=key,
             thinking_mode=cast(ThinkingMode, thinking_mode),
+            thinking_param_style=thinking_param_style,
+            preserve_thinking=raw_preserve_thinking,
+            include_stream_usage=raw_include_stream_usage,
             json_mode=cast(JsonOutputMode, json_mode),
             models=tuple(models),
         )
     return parsed
+
+
+def resolve_model_thinking_mode(
+    provider: ProviderConfig,
+    model_name: str,
+) -> ThinkingMode:
+    """解析具体模型的思考模式（允许单模型覆盖厂商默认模式）。"""
+
+    option = next((m for m in provider.models if m.id == model_name), None)
+    if option is not None and option.thinking_mode is not None:
+        return option.thinking_mode
+    return provider.thinking_mode
+
+
+def model_supports_reasoning_effort(
+    provider: ProviderConfig,
+    model_name: str,
+) -> bool:
+    """判断具体模型是否接受 reasoning_effort 参数。"""
+
+    option = next((m for m in provider.models if m.id == model_name), None)
+    return option.supports_reasoning_effort if option is not None else True
+
+
+def resolve_thinking_param_style(
+    provider: ProviderConfig,
+    model_name: str | None = None,
+) -> ThinkingParamStyle | None:
+    """解析 OpenAI 兼容厂商的深度思考参数协议风格。"""
+
+    mode = (
+        resolve_model_thinking_mode(provider, model_name)
+        if model_name
+        else provider.thinking_mode
+    )
+    if mode == "none":
+        return None
+    if provider.thinking_param_style is not None:
+        return provider.thinking_param_style
+    if mode == "toggleable":
+        return "thinking_object"
+    return "reasoning_effort_only"
 
 
 def resolve_model_thinking_level(
@@ -453,11 +769,18 @@ def resolve_model_max_tokens(
 
     option = next((m for m in provider.models if m.id == model_name), None)
     cap = option.max_output_tokens if option is not None else 65536
+    effective_cap = cap
+    model_mode = resolve_model_thinking_mode(provider, model_name)
+    if model_mode == "toggleable" and not thinking_enabled:
+        non_thinking_cap = (
+            option.non_thinking_max_output_tokens
+            if option is not None and option.non_thinking_max_output_tokens is not None
+            else 8192
+        )
+        effective_cap = min(cap, non_thinking_cap)
     if requested is None:
-        if provider.thinking_mode == "toggleable" and not thinking_enabled:
-            return min(cap, 8192)
-        return cap
-    return max(256, min(requested, cap))
+        return effective_cap
+    return max(256, min(requested, effective_cap))
 
 
 def resolve_api_key(
@@ -476,6 +799,76 @@ def resolve_api_key(
     if fallback and not fallback.startswith("your"):
         return fallback
     return ""
+
+
+def _read_windows_registry_env(name: str) -> str:
+    """读取 Windows 用户级/系统级环境变量注册表值（仅用于补齐过期进程环境）。"""
+
+    if sys.platform != "win32":
+        return ""
+    import winreg
+
+    locations = (
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+        ),
+    )
+    for root, subkey in locations:
+        try:
+            with winreg.OpenKey(root, subkey) as handle:
+                raw_value, value_type = winreg.QueryValueEx(handle, name)
+        except OSError:
+            continue
+        if not isinstance(raw_value, str):
+            continue
+        if value_type == winreg.REG_EXPAND_SZ:
+            raw_value = winreg.ExpandEnvironmentStrings(raw_value)
+        cleaned = raw_value.strip()
+        if cleaned:
+            return cleaned
+    return ""
+
+
+def sync_missing_windows_env_vars(
+    names: Iterable[str],
+    *,
+    reader: Callable[[str], str] = _read_windows_registry_env,
+) -> list[str]:
+    """在 Windows 下将进程缺失但用户/系统环境已配置的变量补齐到当前进程。
+
+    当前进程已显式设置的环境变量优先级始终高于注册表，不会被覆盖。
+    """
+
+    synced: list[str] = []
+    seen: set[str] = set()
+    for raw_name in names:
+        name = raw_name.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if os.getenv(name, "").strip():
+            continue
+        value = reader(name).strip()
+        if value:
+            os.environ[name] = value
+            synced.append(name)
+    return synced
+
+
+def sync_configured_env_vars(
+    extra_names: Iterable[str] = (),
+) -> list[str]:
+    """启动入口调用：补齐配置声明的厂商 Key、Embedding Key 及附加环境变量。"""
+
+    names: list[str] = [
+        provider.env_key for provider in settings.providers.values() if provider.env_key
+    ]
+    if settings.embedding.env_key:
+        names.append(settings.embedding.env_key)
+    names.extend(extra_names)
+    return sync_missing_windows_env_vars(names)
 
 
 def _load_config() -> AppConfig:
@@ -534,6 +927,13 @@ def _load_config() -> AppConfig:
     else:
         raise TypeError("配置文件的 embedding 必须是对象")
 
+    raw_image_generation = config.get("image_generation", {})
+    if not isinstance(raw_image_generation, dict):
+        raise TypeError("配置文件的 image_generation 必须是对象")
+    image_model = raw_image_generation.get("model", "")
+    if not isinstance(image_model, str):
+        raise TypeError("image_generation.model 必须是字符串")
+
     return AppConfig(
         model_config=ModelConfig(
             name=name,
@@ -546,6 +946,7 @@ def _load_config() -> AppConfig:
         safety=SafetyConfig(**config.get("safety", {})),
         safety_prompt=(_CONFIG_DIR / "safety_prompt.md").read_text(encoding="utf-8"),
         embedding=embedding_cfg,
+        image_generation_model=image_model.strip(),
     )
 
 

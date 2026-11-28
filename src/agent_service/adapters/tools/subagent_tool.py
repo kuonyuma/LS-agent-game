@@ -10,7 +10,8 @@ class SubagentTool(Tool):
     name = "subagent"
     description = (
         "派发与协同特化子代理（Multi-Agent），每个子代理在隔离的上下文中独立运行并返回精炼报告。"
-        "内置四个角色：'explorer'（只读代码探索与搜集证据，可在规划/反思阶段调用）、"
+        "内置五个角色：'explorer'（只读代码探索与搜集证据，可在规划/反思阶段调用）、"
+        "'researcher'（只读 CS 学术文献调研、引文追踪与论文全文精读，可在规划/反思阶段并发调用）、"
         "'worker'（密集任务编码实现与修复）、'monitor'（长时间任务/测试监控与验证）、"
         "'default'（完整读写与规划能力的通用子代理）。"
         "支持单轮并发调用多个子代理、通过 context_refs 零损耗传递前序子代理报告、"
@@ -32,8 +33,8 @@ class SubagentTool(Tool):
                 "type": "STRING",
                 "description": (
                     "子代理角色（action='spawn' 创建新子代理时使用）："
-                    "'explorer'（只读探索/搜证）、'worker'（编码实现与修复）、"
-                    "'monitor'（测试/命令监控与验证）、'default'（全功能通用）"
+                    "'explorer'（只读探索/搜证）、'researcher'（只读 CS 文献检索与论文精读）、"
+                    "'worker'（编码实现与修复）、'monitor'（测试/命令监控与验证）、'default'（全功能通用）"
                 ),
             },
             "task": {

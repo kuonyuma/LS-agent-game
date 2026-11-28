@@ -29,6 +29,7 @@ import {
   submitApproval,
   updateSession,
 } from "./api";
+import { AccountMenu } from "./components/AccountMenu";
 import { Composer } from "./components/Composer";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { KnowledgeBaseModal } from "./components/KnowledgeBaseModal";
@@ -43,16 +44,22 @@ import {
 import { OpeningConstellationIntro } from "./components/intro/OpeningConstellationIntro";
 import { VendorSpotlightModal } from "./components/intro/VendorSpotlightModal";
 import type { VendorId } from "./components/intro/vendorCatalog";
+import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { WorkspaceBrowserModal } from "./components/WorkspaceBrowserModal";
 import { resolveEffortAppearance } from "./effortAppearance";
+import { useTheme } from "./theme";
 import type {
   AgentPhase,
   AttachmentPreview,
   EmbeddingDefaults,
   ExecutionPlan,
+  ImageArtifact,
+  ImageOptions,
+  ImageSearchStatus,
   KnowledgeBaseSummary,
   ModelOption,
   PendingApproval,
+  PresentationArtifact,
   ProviderInfo,
   ReasoningEffort,
   RunSettings,
@@ -62,10 +69,16 @@ import type {
   ToolTrace,
   UIMessage,
   UsageStats,
+  WebAccount,
 } from "./types";
 
 const STORAGE_KEY = "ls_agent_studio_settings_v4";
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+const BINARY_DOCUMENT_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
 
 const DEFAULT_SETTINGS: RunSettings = {
   apiKeys: {},
@@ -96,6 +109,13 @@ const SUGGESTION_CHIPS = [
       "请帮我在当前工作区新建一个名为 demo_hello.md 的简短测试笔记，验证人工审批流程。",
   },
 ];
+const SHARED_SUGGESTION_CHIPS = [
+  { label: "总结上传的资料", prompt: "请总结我提供的资料，提炼主要观点和待确认的问题。" },
+];
+const PPT_EXAMPLE_CHIP = {
+  label: "试做一份 PPT",
+  prompt: "请根据以下示例资料，为大一新生制作一份 6 页中文 PPT，主题是「校园反诈第一课」。示例资料：遇到自称老师的人在群里催缴费用，先通过学校公布的渠道核实。兼职刷单和索要验证码都是常见风险。发现可疑情况时先暂停转账，保留记录，通过正式渠道求助。请加入一道情境选择题，生成可下载的 PPT 文件。",
+};
 
 function loadSavedSettings(): RunSettings {
   try {
@@ -189,13 +209,20 @@ function readAsText(file: File): Promise<string> {
   });
 }
 
-export default function App() {
+export default function App({ account, onLogout }: {
+  account: WebAccount;
+  onLogout: () => Promise<void>;
+}) {
+  const { isDark } = useTheme();
+  const localMode = account.mode === "local";
   const [workspace, setWorkspace] = useState("");
   const [workspaceBrowserOpen, setWorkspaceBrowserOpen] = useState(false);
   const [pickingNativeWorkspace, setPickingNativeWorkspace] = useState(false);
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  const [imageSearchStatus, setImageSearchStatus] =
+    useState<ImageSearchStatus | null>(null);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [defaultEmbedding, setDefaultEmbedding] =
     useState<EmbeddingDefaults | null>(null);
@@ -212,7 +239,7 @@ export default function App() {
   const [selectedProvider, setSelectedProvider] = useState("gemini");
   const [selectedModel, setSelectedModel] = useState("gemini-4-hydrogen");
 
-  const [runSettings, setRunSettings] = useState<RunSettings>(loadSavedSettings);
+  const [runSettings, setRunSettings] = useState<RunSettings>(() => localMode ? loadSavedSettings() : DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"model" | "tools">("model");
 
@@ -221,6 +248,7 @@ export default function App() {
 
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
+  const [imageOptions, setImageOptions] = useState<ImageOptions | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [phase, setPhase] = useState<AgentPhase>("executing");
   const [activePlan, setActivePlan] = useState<ExecutionPlan | null>(null);
@@ -252,12 +280,15 @@ export default function App() {
   const messagesListRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!localMode) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(runSettings));
     } catch {
       // ignore
     }
-  }, [runSettings]);
+  }, [localMode, runSettings]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const currentProviderInfo = useMemo(
     () => providers.find((p) => p.id === selectedProvider) ?? providers[0],
@@ -287,8 +318,8 @@ export default function App() {
     [currentModelInfo, runSettings.effortByModel, effortModelKey],
   );
   const particleAppearance = useMemo(
-    () => resolveEffortAppearance(currentThinkingLevels, activeEffort, effortPreviewRatio),
-    [currentThinkingLevels, activeEffort, effortPreviewRatio],
+    () => resolveEffortAppearance(currentThinkingLevels, activeEffort, effortPreviewRatio, isDark),
+    [currentThinkingLevels, activeEffort, effortPreviewRatio, isDark],
   );
 
   // 将当前推理强度（含实时拖动推杆预览）连续映射为 0..1，用于强化当前选中厂商行星的粒子特效
@@ -316,8 +347,47 @@ export default function App() {
   const supportsVision = currentModelInfo?.supports_vision ?? true;
 
   const hasApiKey = Boolean(
-    currentProviderInfo?.env_configured || runSettings.apiKeys[selectedProvider],
+    currentProviderInfo?.oauth_connected ||
+      currentProviderInfo?.env_configured ||
+      runSettings.apiKeys[selectedProvider],
   );
+  const canMakePpt = tools.some((tool) => tool.name === "generate_pptx");
+  const canGenerateImage = tools.some((tool) => tool.name === "generate_image");
+  const baseSuggestions = localMode ? SUGGESTION_CHIPS : SHARED_SUGGESTION_CHIPS;
+  const showPptSuggestion = canMakePpt && !input.trim() && !attachments.length && !selectedKnowledgeBaseIds.length;
+  const suggestions = canGenerateImage && imageOptions ? [] : showPptSuggestion
+    ? [PPT_EXAMPLE_CHIP, ...baseSuggestions] : baseSuggestions;
+
+  const refreshProviders = useCallback(
+    async (refreshModels = false) => {
+      const provRes = await fetchProviders(refreshModels);
+      setProviders(provRes.providers);
+      const matched = provRes.providers.find((p) => p.id === selectedProvider);
+      if (
+        matched &&
+        matched.models.length > 0 &&
+        !matched.models.some((m) => m.id === selectedModel)
+      ) {
+        setSelectedModel(matched.default_model || matched.models[0].id);
+      }
+    },
+    [selectedProvider, selectedModel],
+  );
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; ok?: boolean; message?: string } | null;
+      if (!data || data.type !== "chatgpt-oauth-complete") return;
+      if (data.ok) {
+        setBannerError("");
+        void refreshProviders(true).catch(() => undefined);
+      } else if (data.message) {
+        setBannerError(data.message);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [refreshProviders]);
 
   const geminiEnvConfigured = useMemo(
     () =>
@@ -416,6 +486,7 @@ export default function App() {
       setInspectedVendorId(null);
       setHandoffMsgId(null);
       setActiveSessionId(detail.session_id);
+      setImageOptions(null);
       setMessages(detail.messages);
       setSessionUsage(detail.usage ?? {});
       setSelectedKnowledgeBaseIds(detail.knowledge_base_ids ?? []);
@@ -468,6 +539,7 @@ export default function App() {
         ]);
         if (!mounted) return;
         setWorkspace(health.workspace);
+        setImageSearchStatus(health.image_search ?? null);
         recordRecentWorkspace(health.workspace);
         setProviders(provRes.providers);
         setTools(toolsRes.tools);
@@ -476,11 +548,13 @@ export default function App() {
         setDefaultEmbedding(kbRes.default_embedding);
 
         const defaultProv =
-          provRes.providers.find((p) => p.id === provRes.default_provider) ??
-          provRes.providers[0];
-        if (defaultProv) {
-          setSelectedProvider(defaultProv.id);
-          setSelectedModel(defaultProv.default_model);
+          provRes.providers.find((p) => p.id === provRes.default_provider) ?? provRes.providers[0];
+        const initialProvider = localMode || defaultProv?.env_configured || defaultProv?.oauth_connected
+          ? defaultProv
+          : provRes.providers.find((p) => p.env_configured || p.oauth_connected) ?? defaultProv;
+        if (initialProvider) {
+          setSelectedProvider(initialProvider.id);
+          setSelectedModel(initialProvider.default_model);
         }
       } catch (err) {
         if (mounted) {
@@ -493,7 +567,7 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, [recordRecentWorkspace]);
+  }, [localMode, recordRecentWorkspace]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -517,7 +591,7 @@ export default function App() {
 
     const animations: Animation[] = [];
 
-    // 1) 向下沉降：底部输入框零延迟从原居中位置平滑滑落停靠
+    // 1) 向下沉降：底部输入框 0ms 响应但采用沉稳带惯性阻尼的曲线，与虫洞蓄压→推背同频受力
     const dockedComposer = dockedComposerRef.current;
     const destination = dockedComposer?.getBoundingClientRect();
     if (dockedComposer && destination) {
@@ -527,36 +601,37 @@ export default function App() {
         warpOrigin.top - destination.top + (warpOrigin.height - destination.height) / 2;
       const flight = dockedComposer.animate?.(
         [
-          { transform: `translate(${x}px, ${y}px) scale(1.012)` },
-          { transform: "translate(0, 0) scale(1)" },
+          { transform: `translate(${x}px, ${y}px) scale(1)`, offset: 0 },
+          { transform: `translate(${x}px, ${(y * 0.96).toFixed(1)}px) scale(0.988)`, offset: 0.14 },
+          { transform: "translate(0, 0) scale(1)", offset: 1 },
         ],
         {
           delay: 0,
-          duration: 560,
+          duration: 640,
           fill: "backwards",
-          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          easing: "cubic-bezier(0.28, 0.08, 0.16, 1)",
         },
       );
       if (flight) animations.push(flight);
     }
 
-    // 2) 向上镜像升空：首条用户气泡从原输入框附近迎着清空的通道优雅上浮，AI 首条紧接俯冲抵达显现
+    // 2) 向上镜像升空：随虫洞加压峰值与破壁清场，首条用户气泡优雅上浮，AI 首条紧接行星落点显现
     const listRoot = messagesListRef.current;
     if (listRoot) {
       const firstUser = listRoot.querySelector<HTMLElement>("[data-first-user='1']");
       if (firstUser) {
         const uRect = firstUser.getBoundingClientRect();
-        const riseY = Math.max(48, Math.min(188, warpOrigin.top - uRect.top + 16));
+        const riseY = Math.max(52, Math.min(196, warpOrigin.top - uRect.top + 18));
         const userAnim = firstUser.animate?.(
           [
-            { opacity: 0, transform: `translateY(${riseY}px) scale(0.965)` },
+            { opacity: 0, transform: `translateY(${riseY}px) scale(0.955)` },
             { opacity: 1, transform: "translateY(0) scale(1)" },
           ],
           {
-            delay: 110,
-            duration: 430,
+            delay: 220,
+            duration: 500,
             fill: "backwards",
-            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            easing: "cubic-bezier(0.18, 0.88, 0.24, 1)",
           },
         );
         if (userAnim) animations.push(userAnim);
@@ -566,14 +641,14 @@ export default function App() {
       if (firstAssistant) {
         const assistantAnim = firstAssistant.animate?.(
           [
-            { opacity: 0, transform: "translateY(14px) scale(0.988)" },
+            { opacity: 0, transform: "translateY(16px) scale(0.985)" },
             { opacity: 1, transform: "translateY(0) scale(1)" },
           ],
           {
-            delay: 280,
-            duration: 380,
+            delay: 420,
+            duration: 420,
             fill: "backwards",
-            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            easing: "cubic-bezier(0.2, 0.9, 0.28, 1)",
           },
         );
         if (assistantAnim) animations.push(assistantAnim);
@@ -603,6 +678,7 @@ export default function App() {
     setSubagents([]);
     setPendingApprovals([]);
     setAttachments([]);
+    setImageOptions(null);
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -728,7 +804,11 @@ export default function App() {
         continue;
       }
       try {
-        if (file.type.startsWith("image/")) {
+        const extension = file.name.toLowerCase().match(/\.([^.]+)$/)?.[1] ?? "";
+        const binaryType = Object.hasOwn(BINARY_DOCUMENT_TYPES, extension)
+          ? BINARY_DOCUMENT_TYPES[extension]
+          : file.type === "application/pdf" ? file.type : "";
+        if (!binaryType && file.type.startsWith("image/")) {
           if (!supportsVision) {
             setBannerError(`当前模型不支持图片输入，已跳过 ${file.name}。`);
             continue;
@@ -741,14 +821,11 @@ export default function App() {
             size: file.size,
             data_base64: b64,
           });
-        } else if (
-          file.type === "application/pdf" ||
-          file.name.toLowerCase().endsWith(".pdf")
-        ) {
+        } else if (binaryType) {
           const b64 = await readAsBase64(file);
           next.push({
             name: file.name,
-            mime_type: "application/pdf",
+            mime_type: binaryType,
             kind: "file",
             size: file.size,
             data_base64: b64,
@@ -791,6 +868,16 @@ export default function App() {
       setPendingApprovals((prev) =>
         prev.filter((item) => item.approval_id !== approval.approval_id),
       );
+      if (approved) {
+        setMessages((prev) => prev.map((message) => !message.streaming ? message : {
+          ...message,
+          tool_calls: message.tool_calls?.map((trace) =>
+            trace.call_id === approval.tool_call_id && trace.status === "awaiting_approval"
+              ? { ...trace, status: "running" }
+              : trace,
+          ),
+        }));
+      }
     } catch (err) {
       setBannerError(err instanceof Error ? err.message : "提交审批失败");
       setPendingApprovals((prev) =>
@@ -907,6 +994,8 @@ export default function App() {
           workspace: workspace || undefined,
           api_key: runSettings.apiKeys[selectedProvider] || undefined,
           search_api_key: runSettings.apiKeys.deepseek || undefined,
+          serper_api_key: runSettings.apiKeys.serper || undefined,
+          tavily_api_key: runSettings.apiKeys.tavily || undefined,
           embedding_api_key: runSettings.apiKeys.gemini || undefined,
           knowledge_base_ids: selectedKnowledgeBaseIds,
           thinking_enabled: activeEffort !== "off",
@@ -917,6 +1006,8 @@ export default function App() {
           system_prompt_override:
             runSettings.systemPromptOverride.trim() || undefined,
           attachments: currentAttachments,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          image_options: canGenerateImage ? imageOptions ?? undefined : undefined,
         },
         (ev) => {
           const evType = String(ev.type ?? "");
@@ -992,8 +1083,12 @@ export default function App() {
             const toolName = String(ev.tool_name ?? "");
             const isErr = Boolean(ev.is_error);
             const resText = String(ev.result ?? "");
+            const verifiedUrls = Array.isArray(ev.verified_media_urls)
+              ? (ev.verified_media_urls as string[])
+              : undefined;
             updateAssistant((m) => ({
               ...m,
+              verified_media_urls: verifiedUrls ?? m.verified_media_urls,
               tool_calls: (m.tool_calls ?? []).map((t) =>
                 t.call_id === callId
                   ? {
@@ -1027,8 +1122,14 @@ export default function App() {
             }));
           } else if (evType === "run.completed" || evType === "run.failed") {
             const usage = (ev.usage as UsageStats) ?? {};
+            const verifiedUrls = Array.isArray(ev.verified_media_urls)
+              ? (ev.verified_media_urls as string[])
+              : undefined;
             updateAssistant((m) => ({
               ...m,
+              presentations: (ev.presentations as PresentationArtifact[] | undefined) ?? m.presentations,
+              images: (ev.images as ImageArtifact[] | undefined) ?? m.images,
+              verified_media_urls: verifiedUrls ?? m.verified_media_urls,
               streaming: false,
               usage,
               reason: String(ev.reason ?? ""),
@@ -1075,12 +1176,17 @@ export default function App() {
   const composer = (
     <Composer
       centered={isEmpty}
+      placeholder={isEmpty && canMakePpt ? "输入你的任务，例如：帮我做一份介绍乐山的 PPT" : undefined}
+      showWorkspace={localMode}
       value={input}
       attachments={attachments}
       workspace={workspace}
       recentWorkspaces={runSettings.recentWorkspaces}
       pickingNativeWorkspace={pickingNativeWorkspace}
       supportsVision={supportsVision}
+      canGenerateImage={canGenerateImage}
+      imageOptions={canGenerateImage ? imageOptions : null}
+      onImageOptionsChange={setImageOptions}
       modelPicker={
         <ModelPicker
           providers={providers}
@@ -1123,7 +1229,7 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-neutral-900">
+    <div className="flex h-screen w-screen overflow-hidden bg-white text-neutral-900 dark:bg-[#0B0C14] dark:text-[#F3F4FA]">
       {/* Smooth animated left sidebar wrapper */}
       <div
         className={`h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
@@ -1155,17 +1261,17 @@ export default function App() {
               setSettingsOpen(true);
             }}
             onOpenKnowledgeModal={() => setKnowledgeModalOpen(true)}
-            onOpenWorkspaceBrowser={() => {
+            onOpenWorkspaceBrowser={localMode ? () => {
               if (!isRunning) setWorkspaceBrowserOpen(true);
-            }}
+            } : undefined}
           />
         </div>
       </div>
 
       {/* Main Canvas */}
-      <main className="flex min-w-0 flex-1 flex-col bg-white">
+      <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-[#0B0C14]">
         {/* Ultra-minimal 52px Top Bar */}
-        <header className="flex h-[52px] shrink-0 items-center justify-between px-3 sm:px-4">
+        <header className="relative z-30 flex h-[52px] shrink-0 items-center justify-between px-3 sm:px-4">
           <div className="flex items-center gap-1">
             <div
               className={`flex items-center gap-1 overflow-hidden transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
@@ -1178,7 +1284,7 @@ export default function App() {
                 type="button"
                 onClick={() => setLeftOpen(true)}
                 title="展开侧边栏"
-                className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+                className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 dark:text-[#8E94B0] dark:hover:bg-white/[0.07] dark:hover:text-[#F3F4FA]"
               >
                 <PanelLeftOpen className="h-[18px] w-[18px]" />
               </button>
@@ -1187,7 +1293,7 @@ export default function App() {
                 disabled={isRunning}
                 onClick={handleNewChat}
                 title="发起新对话"
-                className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40"
+                className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40 dark:text-[#8E94B0] dark:hover:bg-white/[0.07] dark:hover:text-[#F3F4FA]"
               >
                 <SquarePen className="h-[18px] w-[18px]" />
               </button>
@@ -1206,7 +1312,7 @@ export default function App() {
                 }}
                 title="重播开场星环动画"
                 aria-label="重播开场星环动画"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200/80 bg-white text-neutral-500 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200/80 bg-white text-neutral-500 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 dark:border-white/[0.11] dark:bg-white/[0.05] dark:text-[#A3A8C2] dark:hover:border-violet-400/35 dark:hover:bg-violet-500/[0.14] dark:hover:text-violet-200"
               >
                 <Orbit className="h-[15px] w-[15px]" />
               </button>
@@ -1216,22 +1322,24 @@ export default function App() {
               onClick={() => setRightOpen((v) => !v)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                 rightOpen
-                  ? "border-neutral-300 bg-neutral-100 text-neutral-950"
-                  : "border-neutral-200/80 bg-white text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
+                  ? "border-neutral-300 bg-neutral-100 text-neutral-950 dark:border-white/[0.18] dark:bg-white/[0.11] dark:text-[#F3F4FA]"
+                  : "border-neutral-200/80 bg-white text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 dark:border-white/[0.11] dark:bg-white/[0.05] dark:text-[#C8CCE0] dark:hover:bg-white/[0.09] dark:hover:text-[#F3F4FA]"
               }`}
             >
               <Activity
                 className={`h-3.5 w-3.5 ${
-                  isRunning ? "animate-pulse text-blue-600" : "text-neutral-400"
+                  isRunning ? "animate-pulse text-blue-600 dark:text-[#7DA8FF]" : "text-neutral-400 dark:text-[#7C829E]"
                 }`}
               />
               <span>运行追踪</span>
               {planStepsTotal > 0 && (
-                <span className="rounded-full bg-neutral-200/80 px-1.5 py-0.2 font-mono text-[10.5px] text-neutral-700">
+                <span className="rounded-full bg-neutral-200/80 px-1.5 py-0.2 font-mono text-[10.5px] text-neutral-700 dark:bg-white/[0.12] dark:text-[#E5E8F5]">
                   {planStepsDone}/{planStepsTotal}
                 </span>
               )}
             </button>
+
+            <ThemeToggleButton className="h-8 w-8" />
 
             <button
               type="button"
@@ -1240,18 +1348,19 @@ export default function App() {
                 setSettingsOpen(true);
               }}
               title="模型设置与 API Key"
-              className="relative rounded-full p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+              className="relative rounded-full p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 dark:text-[#989EB8] dark:hover:bg-white/[0.07] dark:hover:text-[#F3F4FA]"
             >
               <Settings className="h-[17px] w-[17px]" />
               {!hasApiKey && (
-                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-white" />
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-white dark:ring-[#0B0C14]" />
               )}
             </button>
+            {!localMode && <AccountMenu account={account} onLogout={onLogout} />}
           </div>
         </header>
 
         {bannerError && (
-          <div className="mx-auto mb-2 flex w-full max-w-3xl items-center justify-between rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700">
+          <div className="mx-auto mb-2 flex w-full max-w-3xl items-center justify-between rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:border-rose-400/25 dark:bg-rose-500/[0.11] dark:text-rose-200">
             <span>{bannerError}</span>
             <button type="button" onClick={() => setBannerError("")}>
               <X className="h-3.5 w-3.5" />
@@ -1260,6 +1369,14 @@ export default function App() {
         )}
 
         <div className="relative isolate flex min-h-0 flex-1 flex-col">
+          {(isEmpty || warpOrigin) && (
+            <div
+              aria-hidden="true"
+              className={`welcome-astra-backdrop pointer-events-none absolute inset-0 transition-opacity ${
+                warpOrigin ? "duration-700 delay-200 opacity-0" : "duration-500 opacity-100"
+              }`}
+            />
+          )}
           {(isEmpty || warpOrigin) && (
             <WelcomeParticleField
               composerRef={welcomeComposerRef}
@@ -1285,7 +1402,7 @@ export default function App() {
                 }`}
               >
                 <div className="mb-6 text-center">
-                  <h2 className="inline-block text-[26px] font-semibold tracking-tight text-neutral-900 sm:text-[30px]">
+                  <h2 className="inline-block text-[26px] font-semibold tracking-tight text-neutral-900 dark:text-[#F3F4FA] sm:text-[30px]">
                     今天想推进什么任务？
                   </h2>
                 </div>
@@ -1295,12 +1412,18 @@ export default function App() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                  {SUGGESTION_CHIPS.map((chip) => (
+                  {suggestions.map((chip) => (
                     <button
                       key={chip.label}
                       type="button"
-                      onClick={() => void handleSend(chip.prompt)}
-                      className="pointer-events-auto rounded-full border border-neutral-200/90 bg-white px-3.5 py-1.5 text-xs text-neutral-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-900"
+                      onClick={() => {
+                        if (chip === PPT_EXAMPLE_CHIP && !hasApiKey) {
+                          setBannerError(localMode ? "请先在模型设置中配置一个可用模型。" : "暂时没有可用的模型，请联系工作台管理员。");
+                          return;
+                        }
+                        void handleSend(chip.prompt);
+                      }}
+                      className="pointer-events-auto rounded-full border border-neutral-200/90 bg-white px-3.5 py-1.5 text-xs text-neutral-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-900 dark:border-white/[0.11] dark:bg-[#121420]/70 dark:text-[#C5C9DE] dark:backdrop-blur-md dark:hover:border-violet-400/35 dark:hover:bg-violet-500/[0.14] dark:hover:text-[#F3F4FA]"
                     >
                       {chip.label}
                     </button>
@@ -1318,16 +1441,16 @@ export default function App() {
                 >
                   <div className="w-full max-w-2xl">
                     <div className="mb-6 text-center">
-                      <div className="inline-block text-[26px] font-semibold tracking-tight text-neutral-900 sm:text-[30px]">
+                      <div className="inline-block text-[26px] font-semibold tracking-tight text-neutral-900 dark:text-[#F3F4FA] sm:text-[30px]">
                         今天想推进什么任务？
                       </div>
                     </div>
                     <div style={{ height: `${Math.round(warpOrigin.height)}px` }} />
                     <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                      {SUGGESTION_CHIPS.map((chip) => (
+                      {suggestions.map((chip) => (
                         <span
                           key={chip.label}
-                          className="rounded-full border border-neutral-200/90 bg-white px-3.5 py-1.5 text-xs text-neutral-600"
+                          className="rounded-full border border-neutral-200/90 bg-white px-3.5 py-1.5 text-xs text-neutral-600 dark:border-white/[0.11] dark:bg-[#121420]/70 dark:text-[#C5C9DE]"
                         >
                           {chip.label}
                         </span>
@@ -1349,6 +1472,7 @@ export default function App() {
                     >
                       <MessageBubble
                         message={msg}
+                        sessionId={activeSessionId}
                         handoffEcho={msg.id === handoffMsgId}
                         pendingApprovals={
                           idx === messages.length - 1 ? pendingApprovals : []
@@ -1360,7 +1484,13 @@ export default function App() {
                   <div ref={bottomRef} />
                 </div>
               </div>
-              <div className="relative z-20 shrink-0 bg-gradient-to-t from-white via-white to-white/80 px-4 pb-4 pt-2 sm:px-6">
+              <div
+                className={`relative z-20 shrink-0 px-4 pb-4 pt-2 sm:px-6 ${
+                  warpOrigin
+                    ? "bg-transparent"
+                    : "bg-gradient-to-t from-white via-white to-white/80 dark:from-[#0B0C14] dark:via-[#0B0C14] dark:to-[#0B0C14]/80"
+                }`}
+              >
                 <div ref={dockedComposerRef} className="mx-auto max-w-3xl">
                   {composer}
                 </div>
@@ -1402,22 +1532,28 @@ export default function App() {
         providers={providers}
         currentModelMaxTokens={currentModelInfo?.max_output_tokens ?? 65536}
         tools={tools}
+        imageSearchStatus={imageSearchStatus}
         settings={runSettings}
+        rememberKeys={localMode}
         onChange={setRunSettings}
+        onChatGPTAuthChanged={refreshProviders}
         onClose={() => setSettingsOpen(false)}
       />
 
       {/* Server-side Workspace Browser Modal */}
-      <WorkspaceBrowserModal
-        open={workspaceBrowserOpen}
-        currentWorkspace={workspace}
-        onSelect={(path) => void applyWorkspace(path)}
-        onClose={() => setWorkspaceBrowserOpen(false)}
-      />
+      {localMode && (
+        <WorkspaceBrowserModal
+          open={workspaceBrowserOpen}
+          currentWorkspace={workspace}
+          onSelect={(path) => void applyWorkspace(path)}
+          onClose={() => setWorkspaceBrowserOpen(false)}
+        />
+      )}
 
       {/* Local Vector Knowledge Base Modal */}
       <KnowledgeBaseModal
         open={knowledgeModalOpen}
+        allowCustomEmbedding={localMode}
         knowledgeBases={knowledgeBases}
         selectedIds={selectedKnowledgeBaseIds}
         defaultEmbedding={defaultEmbedding}

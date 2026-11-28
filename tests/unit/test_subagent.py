@@ -52,8 +52,30 @@ def test_role_profiles_enforce_max_depth_and_tool_scoping(tmp_path):
             "load_yaml",
             "web_search",
             "fetch_web_page",
+            "search_papers",
+            "inspect_paper",
+            "read_paper_fulltext",
         }
     )
+
+    # researcher 仅包含只读学术调研与探索工具，绝不包含写工具或命令工具
+    _, researcher_names, _ = resolve_subagent_tools(
+        ROLE_PROFILES["researcher"],
+        full_registry,
+    )
+    assert researcher_names == frozenset(
+        {
+            "search_papers",
+            "inspect_paper",
+            "read_paper_fulltext",
+            "web_search",
+            "fetch_web_page",
+            "list_files",
+            "read_file",
+        }
+    )
+    assert "write_file" not in researcher_names
+    assert "run_command" not in researcher_names
 
     # worker 包含读写与检查工具，不包含规划/反思内部工具
     _, worker_names, _ = resolve_subagent_tools(
@@ -133,12 +155,18 @@ async def test_subagent_tool_blocks_non_readonly_roles_in_planning_and_reflectin
     )
     tool = SubagentTool(manager)
 
-    # planning 阶段调用 explorer 成功
+    # planning 阶段调用 explorer 与 researcher 均成功
     ok_res = await tool.run(
         {"role": "explorer", "task": "查看目录结构", "description": "探索目录"}
     )
     assert not ok_res.is_error
     assert "explorer-1" in ok_res.content
+
+    research_res = await tool.run(
+        {"role": "researcher", "task": "调研 FlashAttention 相关论文", "description": "文献调研"}
+    )
+    assert not research_res.is_error
+    assert "researcher-1" in research_res.content
 
     # planning 阶段调用 worker / monitor / default 被拦截
     for blocked_role in ("worker", "monitor", "default"):

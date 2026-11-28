@@ -1,6 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { effortColor, type EffortAppearance } from "../effortAppearance";
+import { useTheme } from "../theme";
 import type { EffortVisual } from "../types";
+import {
+  createDeepSpaceStars,
+  createForegroundBokehStreaks,
+  createGalaxyRingStars,
+  createWormholeStars,
+  getCosmicSpriteAtlas,
+  stampBokehStreak,
+  stampCosmicStar,
+  stampCosmicStreak,
+} from "./cosmicStarfield";
 import {
   TAU,
   TRAIL_MOTES,
@@ -9,6 +20,7 @@ import {
   easeOutBack,
   lerp,
   mixRgb,
+  resolveVendorTrail,
   rgba,
   sampleTrailColor,
   smoothstep,
@@ -17,12 +29,121 @@ import {
   type VendorSpec,
 } from "./intro/vendorCatalog";
 
-export const WELCOME_WARP_DURATION = 780;
+export const WELCOME_WARP_DURATION = 1080;
+const WARP_Z_TRAVEL = 3.85;
+
+// 阶段 1：短促引力蓄压咬合（0 ~ 145ms），从 0 丝滑抬压到峰值再回落至 0，衔接待机零跳变
+function warpIntakePulse(p: number): number {
+  const t = clamp(p / 0.135);
+  if (t <= 0 || t >= 1) return 0;
+  return Math.pow(Math.sin(t * Math.PI), 1.15);
+}
+
+// 阶段 2 & 3：厚重推背加速曲线（先慢起破惯性 → 180~440ms 加速度持续攀升至峰值 → 破壁惯性滑出）
+function warpForwardProgress(p: number): number {
+  const u = clamp((p - 0.075) / 0.925);
+  if (u <= 0) return 0;
+  if (u >= 1) return 1;
+  const a = Math.pow(u, 2.65);
+  const b = 0.11 * Math.pow(1 - u, 1.95);
+  return a / (a + b);
+}
+
+// 复合相机深度推进：蓄压微吸（-0.18）无缝滑入深层持续加压推进（+3.85）
+function warpDepthAt(p: number): number {
+  return -0.18 * warpIntakePulse(p) + warpForwardProgress(p) * WARP_Z_TRAVEL;
+}
+
+// 近似瞬时推进速率（归一化 0..1），用于驱动加速度峰值时的光流能量攀升
+function warpSpeedNorm(p: number): number {
+  const eps = 0.015;
+  const v = (warpForwardProgress(p + eps) - warpForwardProgress(Math.max(0, p - eps))) / (2 * eps);
+  return clamp(v / 2.85, 0, 1);
+}
+
+interface ProjectedWarpRay {
+  tailX: number;
+  tailY: number;
+  headX: number;
+  headY: number;
+  headScale: number;
+  visibility: number;
+}
+
+// 统一 3D 透视投影：t=0 时 head/tail 均与初始像素坐标精确重合（零跳变），随推进拉出真实远近差与径向长尾
+function projectWormholeRay(
+  dx0: number,
+  dy0: number,
+  z0: number,
+  dzHead: number,
+  dzTail: number,
+  centerX: number,
+  centerY: number,
+  width: number,
+  height: number,
+  maxRayReach: number,
+  clearWave: number,
+): ProjectedWarpRay | null {
+  const zTail = z0 - dzTail;
+  if (zTail <= 0.07) return null;
+
+  const baseDist = Math.hypot(dx0, dy0);
+  if (baseDist < 0.5) return null;
+
+  const mTail = z0 / zTail;
+  const zHead = z0 - dzHead;
+  // 精确求射线与外扩 72px 视口边界的交点倍数，让冲出画框的近景星头恰好落在边外，保证亮尾饱满扫过屏缘
+  const edgeX = dx0 > 1e-4 ? (width + 72 - centerX) / dx0 : dx0 < -1e-4 ? (-72 - centerX) / dx0 : Infinity;
+  const edgeY = dy0 > 1e-4 ? (height + 72 - centerY) / dy0 : dy0 < -1e-4 ? (-72 - centerY) / dy0 : Infinity;
+  const edgeScale = Math.min(edgeX, edgeY, maxRayReach / baseDist);
+  const maxScale = Math.max(mTail + 0.01, edgeScale * 1.12);
+  const rawHeadScale = zHead > 0.05 ? z0 / zHead : maxScale;
+  const mHead = Math.min(rawHeadScale, maxScale);
+
+  const tailX = centerX + dx0 * mTail;
+  const tailY = centerY + dy0 * mTail;
+  const headX = centerX + dx0 * mHead;
+  const headY = centerY + dy0 * mHead;
+
+  // 线段 AABB 视口裁剪：只要尾迹仍有部分横跨屏幕就保留绘制，完全出框即剔除
+  const minX = tailX < headX ? tailX : headX;
+  const maxX = tailX > headX ? tailX : headX;
+  const minY = tailY < headY ? tailY : headY;
+  const maxY = tailY > headY ? tailY : headY;
+  if (maxX < -36 || minX > width + 36 || maxY < -36 || minY > height + 36) {
+    return null;
+  }
+
+  // 中央清场走廊：首条消息开始上浮后由中心向外优先淡出滞留远星，保证正文背后通透干净
+  let visibility = 1;
+  if (clearWave > 0.001) {
+    const normTailR = Math.hypot(
+      (tailX - centerX) / Math.max(width * 0.48, 1),
+      (tailY - centerY) / Math.max(height * 0.48, 1),
+    );
+    const clearRadius = clearWave * 0.98;
+    const corridor = smoothstep(clearRadius - 0.34, clearRadius + 0.18, normTailR);
+    visibility = lerp(1, corridor, clearWave);
+    if (visibility <= 0.015) return null;
+  }
+
+  return {
+    tailX,
+    tailY,
+    headX,
+    headY,
+    headScale: clamp(mHead, 1, 3.3),
+    visibility,
+  };
+}
 
 const EFFECT_COLORS: Record<EffortVisual["effect"], RgbColor> = {
   glint: [184, 100, 145],
+  bloom: [16, 163, 127],
   align: [152, 93, 170],
   double_arc: [191, 120, 153],
+  lattice: [99, 102, 241],
+  circuit: [20, 184, 166],
 };
 
 interface WelcomeParticleFieldProps {
@@ -149,6 +270,7 @@ export function WelcomeParticleField({
   revealKey = 0,
   onSelectVendor,
 }: WelcomeParticleFieldProps) {
+  const { isDark } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const badgeButtonsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const badgeCanvasesRef = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -167,10 +289,15 @@ export function WelcomeParticleField({
     inspectedVendorId,
     planetsVisible,
     revealKey,
+    isDark,
   });
   const requestPaintRef = useRef<(() => void) | null>(null);
+  const paintNowRef = useRef<(() => void) | null>(null);
+  const prevThemeRef = useRef(isDark);
 
   useLayoutEffect(() => {
+    const themeChanged = prevThemeRef.current !== isDark;
+    prevThemeRef.current = isDark;
     sceneRef.current = {
       warpOrigin,
       appearance,
@@ -182,8 +309,14 @@ export function WelcomeParticleField({
       inspectedVendorId,
       planetsVisible,
       revealKey,
+      isDark,
     };
-    requestPaintRef.current?.();
+    if (themeChanged) {
+      // 主题切换瞬间同步重绘 Canvas，确保 View Transitions API 截帧即呈现新主题星海，零撕裂
+      paintNowRef.current?.();
+    } else {
+      requestPaintRef.current?.();
+    }
   }, [
     warpOrigin,
     appearance,
@@ -195,10 +328,11 @@ export function WelcomeParticleField({
     inspectedVendorId,
     planetsVisible,
     revealKey,
+    isDark,
   ]);
 
-  // 一次性绘制 9 枚高 DPI 官方微缩厂商标识到对应徽章 Canvas
-  useEffect(() => {
+  // 同步绘制 9 枚高 DPI 官方微缩厂商标识（使用 useLayoutEffect 保证 View Transitions 截帧前即完成反白）
+  useLayoutEffect(() => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     for (let i = 0; i < VENDORS.length; i++) {
       const cv = badgeCanvasesRef.current[i];
@@ -210,9 +344,9 @@ export function WelcomeParticleField({
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       c.clearRect(0, 0, 28, 28);
       c.translate(14, 14);
-      VENDORS[i].drawMark(c, 11.4, 0, 0);
+      VENDORS[i].drawMark(c, 11.4, 0, 0, isDark);
     }
-  }, []);
+  }, [isDark]);
 
   useEffect(() => {
     const element = canvasRef.current;
@@ -224,6 +358,11 @@ export function WelcomeParticleField({
     const context = drawingContext;
 
     const particles = createParticles();
+    const deepStars = createDeepSpaceStars(170);
+    const galaxyStars = createGalaxyRingStars(1520);
+    const wormholeStars = createWormholeStars(420);
+    const bokehStreaks = createForegroundBokehStreaks(42);
+    const starAtlas = getCosmicSpriteAtlas();
     const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
     const pointer = { x: 0, y: 0 };
     const follow = { x: 0, y: 0 };
@@ -241,8 +380,15 @@ export function WelcomeParticleField({
     let lastDragX = 0;
     let activeWarp: DOMRectReadOnly | null = null;
     let warpStartedAt = 0;
+    let warpFreezeTime = 0;
+    let warpFreezeOrbitTime = 0;
+    let warpFreezeUserOffset = 0;
+    let warpFreezeFollowX = 0;
+    let warpFreezeFollowY = 0;
     let warpSnapshots: WarpPlanetSnapshot[] | null = null;
     let lastOrbitSnapshots: WarpPlanetSnapshot[] = [];
+    let warpPlanetStates: PlanetOrbitState[] | null = null;
+    let lastPlanetStates: PlanetOrbitState[] = [];
     let displayedVisual = sceneRef.current.visual;
     let visualStrength = displayedVisual ? 1 : 0;
     let lastModelKey = sceneRef.current.modelKey;
@@ -250,11 +396,15 @@ export function WelcomeParticleField({
     let lastRevealKey = sceneRef.current.revealKey;
     let lastActiveProvider = sceneRef.current.activeProvider;
     let lastTargetEffort = sceneRef.current.effortIntensity;
+    let lastDarkMode = sceneRef.current.isDark;
+    let darkAwakenAt = -Infinity;
     let smoothedEffort = sceneRef.current.effortIntensity;
     let surgeStartedAt = -Infinity;
     const activeWeights = VENDORS.map((v) =>
       v.id === sceneRef.current.activeProvider ? 1 : 0,
     );
+    const lastBorderColors = new Array<string>(VENDORS.length).fill("");
+    const lastBoxShadows = new Array<string>(VENDORS.length).fill("");
     let revealStartedAt = performance.now();
     let entryStartedAt = -Infinity;
     let breathAmplitude = sceneRef.current.appearance.breath;
@@ -279,13 +429,14 @@ export function WelcomeParticleField({
       states: PlanetOrbitState[],
       warpFade: number,
       surgeP: number,
+      dark: boolean,
     ) {
       ctx.save();
       ctx.lineCap = "round";
 
       for (const b of states) {
         if (b.visible <= 0.02) continue;
-        const trail = b.vendor.trail;
+        const trail = resolveVendorTrail(b.vendor, dark);
         const actBoost = b.activeWeight * (0.28 + b.effortBoost * 0.62);
         const boost = (b.isHovered || b.isSelected ? 1.32 : 1.0) + actBoost;
         const depthAlpha = lerp(0.72, 1.0, b.depth) * b.visible * warpFade;
@@ -389,16 +540,16 @@ export function WelcomeParticleField({
           const aw = b.activeWeight * depthAlpha;
           const ef = b.effortBoost;
 
-          // (1) 持续向外荡漾的双层专属色呼吸能量环（随推理强度增强速度、范围与亮度）
+          // (1) 持续向外荡漾的双层专属色呼吸能量环（暗夜模式放慢节奏降低眼部刺激）
           const ringCount = ef > 0.38 ? 2 : 1;
-          const pulseRate = 0.42 + ef * 0.58;
+          const pulseRate = dark ? 0.22 + ef * 0.2 : 0.42 + ef * 0.58;
           for (let k = 0; k < ringCount; k++) {
             const p = (orbitTime * pulseRate + k / ringCount) % 1;
-            const rr = 25 + p * (18 + ef * 32);
+            const rr = 25 + p * (18 + ef * (dark ? 24 : 32));
             const ringCol = sampleTrailColor(trail, p);
-            const ringAlpha = Math.sin(p * Math.PI) * (0.28 + ef * 0.48) * aw;
-            ctx.strokeStyle = rgba(ringCol, clamp(ringAlpha, 0, 0.8));
-            ctx.lineWidth = 1.2 + (1 - p) * (0.8 + ef * 1.1);
+            const ringAlpha = Math.sin(p * Math.PI) * ((dark ? 0.2 : 0.28) + ef * (dark ? 0.28 : 0.48)) * aw;
+            ctx.strokeStyle = rgba(ringCol, clamp(ringAlpha, 0, dark ? 0.52 : 0.8));
+            ctx.lineWidth = 1.15 + (1 - p) * (0.7 + ef * (dark ? 0.75 : 1.1));
             ctx.beginPath();
             ctx.arc(b.sx, b.sy, rr, 0, TAU);
             ctx.stroke();
@@ -419,19 +570,21 @@ export function WelcomeParticleField({
           // (3) 随推理强度递增的高能贴身环绕星火微粒（off=0 颗，low~max 渐增至 12 颗，每家各自色系！）
           if (ef > 0.06) {
             const sparkCount = Math.round(3 + ef * 9);
-            const spinSpeed = 1.35 + ef * 2.15;
+            const spinSpeed = dark ? 0.95 + ef * 1.05 : 1.35 + ef * 2.15;
             for (let si = 0; si < sparkCount; si++) {
               const frac = si / sparkCount;
               const isOuter = si % 2 === 1 && ef > 0.48;
               const a =
                 orbitTime * (isOuter ? -spinSpeed * 0.78 : spinSpeed) + frac * TAU;
-              const orbR = (isOuter ? 38 + ef * 12 : 30 + ef * 6) + Math.sin(orbitTime * 3.4 + si * 1.7) * 2.4;
+              const orbR = (isOuter ? 38 + ef * 12 : 30 + ef * 6) + Math.sin(orbitTime * (dark ? 1.8 : 3.4) + si * 1.7) * 2.0;
               const ex = b.sx + Math.cos(a) * orbR;
               const ey = b.sy + Math.sin(a) * orbR * (isOuter ? 0.82 : 0.92);
               const tang = a + (isOuter ? -Math.PI * 0.5 : Math.PI * 0.5);
               const sparkLen = (2.8 + ef * 5.2) * (isOuter ? 0.85 : 1.05);
               const sCol = sampleTrailColor(trail, frac);
-              const twinkle = 0.55 + 0.45 * Math.sin(orbitTime * 5.2 + si * 2.1);
+              const twinkle = dark
+                ? 0.68 + 0.32 * Math.sin(orbitTime * 2.4 + si * 2.1)
+                : 0.55 + 0.45 * Math.sin(orbitTime * 5.2 + si * 2.1);
 
               ctx.strokeStyle = rgba(sCol, clamp((0.45 + ef * 0.5) * twinkle * aw, 0, 0.98));
               ctx.lineWidth = 1.25 + ef * 1.15;
@@ -483,12 +636,21 @@ export function WelcomeParticleField({
         inspectedVendorId: curInspected,
         planetsVisible: showPlanetsFlag,
         revealKey: curRevealKey,
+        isDark: dark,
       } = sceneRef.current;
 
       if (curRevealKey !== lastRevealKey) {
         lastRevealKey = curRevealKey;
         revealStartedAt = now;
       }
+
+      // 由白天切入暗夜瞬间立即开启星光微苏醒（全程保持实时连续运行，绝不暂停）
+      if (dark && !lastDarkMode && !reducedMotion) {
+        darkAwakenAt = now;
+      } else if (!dark) {
+        darkAwakenAt = -Infinity;
+      }
+      lastDarkMode = dark;
 
       // 切换厂商或大幅提高推理强度时，立刻触发一圈清脆的充能冲击波
       if (
@@ -523,7 +685,13 @@ export function WelcomeParticleField({
         activeWarp = nextWarp;
         warpStartedAt = now;
         if (nextWarp) {
-          // 捕获发送瞬间 9 颗行星各自的实时轨道坐标与切线，确保俯冲脱离轨道 C1 连续无跳变
+          // 冻结跃迁起手瞬间的星图相位与鼠标视差，确保每颗星从原坐标沿直线射出，零首帧跳变
+          warpFreezeTime = motionTime;
+          warpFreezeOrbitTime = orbitTime;
+          warpFreezeUserOffset = userOrbitOffset;
+          warpFreezeFollowX = follow.x;
+          warpFreezeFollowY = follow.y;
+          // 捕获发送瞬间 9 颗行星各自的实时轨道坐标、切线与彗尾状态，确保待机到蓄压零跳变衔接
           warpSnapshots =
             lastOrbitSnapshots.length === VENDORS.length
               ? lastOrbitSnapshots.map((item) => ({
@@ -531,8 +699,13 @@ export function WelcomeParticleField({
                   isActive: VENDORS[item.index].id === curProvider,
                 }))
               : null;
+          warpPlanetStates =
+            lastPlanetStates.length === VENDORS.length
+              ? lastPlanetStates.map((st) => ({ ...st }))
+              : null;
         } else {
           warpSnapshots = null;
+          warpPlanetStates = null;
         }
       }
       const paletteEasing = 1 - Math.exp(-delta / 145);
@@ -573,16 +746,33 @@ export function WelcomeParticleField({
         follow.x += (pointer.x - follow.x) * easing;
         follow.y += (pointer.y - follow.y) * easing;
       }
-      const fieldX = reducedMotion ? 0 : follow.x + Math.sin(motionTime * 0.47) * 0.047;
-      const fieldY = reducedMotion ? 0 : follow.y + Math.sin(motionTime * 0.63) * 0.036;
+      const effTime = activeWarp ? warpFreezeTime : motionTime;
+      const effFollowX = activeWarp ? warpFreezeFollowX : follow.x;
+      const effFollowY = activeWarp ? warpFreezeFollowY : follow.y;
+      const fieldX = reducedMotion ? 0 : effFollowX + Math.sin(effTime * 0.47) * 0.047;
+      const fieldY = reducedMotion ? 0 : effFollowY + Math.sin(effTime * 0.63) * 0.036;
       const breathing =
-        Math.sin(motionTime * 1.52) * 0.052 + Math.sin(motionTime * 2.7) * 0.019;
+        Math.sin(effTime * 1.52) * 0.052 + Math.sin(effTime * 2.7) * 0.019;
       const ringRadius = 1 + breathing * breathAmplitude;
-      // 跃迁阶段改为克制顺滑的「短促向心微吸 → 轻盈化雾消散」，绝不炸得满屏乱飞
-      const charge = Math.min(1, progress / 0.24);
-      const release = Math.min(1, Math.max(0, (progress - 0.22) / 0.72));
-      const spread = release * release * (3 - 2 * release);
-      const displacement = -0.095 * charge + 0.34 * spread;
+
+      // 厚重推背虫洞参数：0~140ms 蓄压咬合（衔接待机）→ 140~480ms 持续加压冲刺 → 480~1080ms 破壁清场滑出
+      const warpIntake = activeWarp ? warpIntakePulse(progress) : 0;
+      const warpFwd = activeWarp ? warpForwardProgress(progress) : 0;
+      const warpSpeed = activeWarp ? warpSpeedNorm(progress) : 0;
+      const warpDzHead = activeWarp ? warpDepthAt(progress) : 0;
+      // 随瞬时速度自动拉长曝光快门，蓄压回拉期保持头尾合一（零倒刺），加速峰值期拉出绵密长尾
+      const warpShutterLag = lerp(0.088, 0.132, warpSpeed) * (1 - 0.34 * smoothstep(0.56, 0.96, progress));
+      const warpDzTail = activeWarp
+        ? warpDzHead <= 0
+          ? warpDzHead
+          : Math.max(0, warpDepthAt(Math.max(0, progress - warpShutterLag)))
+        : 0;
+      const warpClearWave = activeWarp ? smoothstep(0.24, 0.56, progress) : 0;
+      const warpTunnelIntensity = activeWarp
+        ? smoothstep(0.04, 0.28, progress) * (1 - smoothstep(0.48, 0.88, progress))
+        : 0;
+      const warpAlignLock = activeWarp ? smoothstep(0.0, 0.125, progress) : 0;
+      const warpMaxReach = Math.hypot(width, height) * 1.18;
 
       const entryProgress = displayedVisual
         ? Math.min(1, (now - entryStartedAt) / displayedVisual.duration_ms)
@@ -595,12 +785,26 @@ export function WelcomeParticleField({
           ? Math.sin(Math.PI * entryProgress) ** 0.65 * visualStrength
           : 0;
       const halo = isGlint ? visualStrength * Math.max(0, (entryProgress - 0.6) / 0.4) : 0;
+      const isBloom = displayedVisual?.effect === "bloom";
+      const bloomStrength = isBloom ? visualStrength * settled : 0;
+      const bloomPulse =
+        isBloom && entryProgress < 1
+          ? Math.sin(Math.PI * entryProgress) ** 0.7 * visualStrength
+          : 0;
       const alignedArc = displayedVisual?.effect === "align" ? visualStrength * settled : 0;
       const outerArc = displayedVisual?.effect === "double_arc" ? visualStrength * settled : 0;
+      const latticeStrength = displayedVisual?.effect === "lattice" ? visualStrength * settled : 0;
+      const isCircuit = displayedVisual?.effect === "circuit";
+      const circuitStrength = isCircuit ? visualStrength * settled : 0;
+      const circuitAngle = -2.4 + settled * Math.PI * 1.45;
+      const circuitSweep =
+        isCircuit && entryProgress < 1
+          ? Math.sin(Math.PI * entryProgress) ** 0.7 * visualStrength
+          : 0;
       const fade = activeWarp
-        ? 1 - Math.pow(clamp((progress - 0.24) / 0.68), 1.35)
+        ? 1 - Math.pow(smoothstep(0.46, 0.97, progress), 1.38)
         : 1;
-      const arcPhase = 1.33 + Math.sin(motionTime * 0.27) * 0.44;
+      const arcPhase = 1.33 + Math.sin(effTime * 0.27) * 0.44;
 
       // 计算 9 枚行星的宽敞超椭圆安全包络轨（360° 全程环绕标题、输入框与建议按钮外围，0 遮挡）
       const canShowPlanets = showPlanetsFlag && width >= 760 && height >= 520;
@@ -620,9 +824,8 @@ export function WelcomeParticleField({
           maxSafeRy,
           Math.max(radiusY * 1.05, compH * 0.5 + 178),
         );
-        const orbitExpand = 1 + displacement * 0.92;
-        const orbitRx = baseOrbitRx * orbitExpand;
-        const orbitRy = baseOrbitRy * orbitExpand;
+        const orbitRx = baseOrbitRx;
+        const orbitRy = baseOrbitRy;
         // 轻微随鼠标视差漂移（限制幅度防止触边）
         const anchorX = centerX + fieldX * Math.min(radiusX * 0.42, 26);
         const anchorY = centerY + fieldY * Math.min(radiusY * 0.42, 18);
@@ -686,171 +889,976 @@ export function WelcomeParticleField({
         }
       }
 
-      // 1) 光晕轻铺在输入框外围，粒子环浮在其上。
-      context.save();
-      context.translate(centerX + fieldX * radiusX, centerY + fieldY * radiusY);
-      context.rotate(tilt);
-      const glowScale = 1 + displacement * 0.3;
-      context.scale(radiusX * 1.4 * glowScale, radiusY * 1.42 * glowScale);
-      const glow = context.createRadialGradient(-0.12, 0.12, 0, 0, 0, 1);
-      glow.addColorStop(0, effortColor(palette.accent, 0.088));
-      glow.addColorStop(0.56, effortColor(palette.base, 0.095));
-      glow.addColorStop(1, effortColor(palette.base, 0));
-      context.globalAlpha = fade;
-      context.fillStyle = glow;
-      context.fillRect(-1, -1, 2, 2);
-      context.restore();
+      // 1) 待命态柔和光晕无缝跨淡入跃迁态（蓄压微缩凝聚 → 虫洞星云壁厚与暗角压迫 → 破壁扩散光环）
+      const idleGlowFade = activeWarp ? 1 - smoothstep(0.0, 0.2, progress) : 1;
+      if (idleGlowFade > 0.01) {
+        context.save();
+        const glowFollowScale = dark ? 0.75 : 1;
+        const glowPinch = 1 - warpIntake * 0.09 + warpFwd * 0.35;
+        context.translate(
+          centerX + fieldX * radiusX * glowFollowScale,
+          centerY + fieldY * radiusY * glowFollowScale,
+        );
+        context.rotate(tilt);
+        context.scale(radiusX * 1.4 * glowPinch, radiusY * 1.42 * glowPinch);
+        const glow = context.createRadialGradient(-0.12, 0.12, 0, 0, 0, 1);
+        glow.addColorStop(0, effortColor(palette.accent, dark ? 0.06 : 0.088));
+        glow.addColorStop(0.56, effortColor(palette.base, dark ? 0.055 : 0.095));
+        glow.addColorStop(1, effortColor(palette.base, 0));
+        context.globalAlpha = idleGlowFade * fade;
+        context.fillStyle = glow;
+        context.fillRect(-1, -1, 2, 2);
+        context.restore();
+      }
 
-      // 2) 粒子星环（融合 9 颗行星 74px 局部物理微引力分流与专属色染色）
-      context.lineCap = "round";
+      if (activeWarp) {
+        const diagR = Math.hypot(width * 0.5, height * 0.5);
+
+        // 1A) 虫洞空间压迫与隧道“壁厚”雾带（暗夜为深空暗角+冷靛/暖金星云隧道壁；浅色为清透边缘折射光幕）
+        if (warpTunnelIntensity > 0.01) {
+          context.save();
+          if (dark) {
+            // 外围压迫深空暗角，凸显前方亮核与隧道纵深
+            const vig = context.createRadialGradient(
+              centerX,
+              centerY,
+              diagR * 0.22,
+              centerX,
+              centerY,
+              diagR * 1.08,
+            );
+            vig.addColorStop(0, "rgba(4, 5, 11, 0)");
+            vig.addColorStop(0.62, `rgba(4, 6, 14, ${(0.22 * warpTunnelIntensity).toFixed(3)})`);
+            vig.addColorStop(1, `rgba(2, 3, 8, ${(0.56 * warpTunnelIntensity).toFixed(3)})`);
+            context.fillStyle = vig;
+            context.fillRect(0, 0, width, height);
+
+            // 8 条低饱和深空星云隧道暗流，沿径向随推背被拉长，制造厚重介质穿越感
+            context.globalCompositeOperation = "lighter";
+            const nebulaSpecs: readonly { a: number; rgb: RgbColor; reach: number; w: number }[] = [
+              { a: -2.72, rgb: [74, 116, 236], reach: 0.72, w: 0.26 },
+              { a: -1.88, rgb: [112, 82, 226], reach: 0.66, w: 0.24 },
+              { a: -0.96, rgb: [82, 138, 244], reach: 0.76, w: 0.28 },
+              { a: -0.22, rgb: [212, 126, 76], reach: 0.68, w: 0.22 },
+              { a: 0.44, rgb: [88, 124, 240], reach: 0.74, w: 0.26 },
+              { a: 1.32, rgb: [126, 86, 232], reach: 0.64, w: 0.25 },
+              { a: 2.12, rgb: [198, 118, 82], reach: 0.7, w: 0.22 },
+              { a: 2.86, rgb: [78, 132, 242], reach: 0.74, w: 0.26 },
+            ];
+            for (const neb of nebulaSpecs) {
+              const stretch = lerp(0.55, 1.38, warpFwd);
+              const dist = diagR * neb.reach * stretch;
+              const rx = diagR * (0.42 + warpSpeed * 0.34);
+              const ry = diagR * neb.w * (1 - warpSpeed * 0.16);
+              const cx = centerX + Math.cos(neb.a) * dist;
+              const cy = centerY + Math.sin(neb.a) * dist;
+              context.save();
+              context.translate(cx, cy);
+              context.rotate(neb.a);
+              context.scale(rx, ry);
+              const ng = context.createRadialGradient(0, 0, 0, 0, 0, 1);
+              ng.addColorStop(0, rgba(neb.rgb, 0.145 * warpTunnelIntensity));
+              ng.addColorStop(0.52, rgba(neb.rgb, 0.065 * warpTunnelIntensity));
+              ng.addColorStop(1, rgba(neb.rgb, 0));
+              context.fillStyle = ng;
+              context.beginPath();
+              context.arc(0, 0, 1, 0, TAU);
+              context.fill();
+              context.restore();
+            }
+          } else {
+            // 浅色清透边缘折射光幕：中央保持纯白清爽，四周叠一层柔和紫粉折射压迫光晕
+            const veil = context.createRadialGradient(
+              centerX,
+              centerY,
+              diagR * 0.28,
+              centerX,
+              centerY,
+              diagR * 1.06,
+            );
+            veil.addColorStop(0, effortColor(palette.base, 0));
+            veil.addColorStop(0.62, effortColor(palette.base, 0.045 * warpTunnelIntensity));
+            veil.addColorStop(0.88, effortColor(palette.accent, 0.095 * warpTunnelIntensity));
+            veil.addColorStop(1, effortColor(palette.base, 0.12 * warpTunnelIntensity));
+            context.fillStyle = veil;
+            context.fillRect(0, 0, width, height);
+          }
+          context.restore();
+        }
+
+        // 1B) 蓄压奇点凝聚焦核（0 ~ 280ms）+ 随加速度扩张的破壁引力冲击光环
+        const coreP = clamp(progress / 0.28);
+        const shockP = clamp((progress - 0.08) / 0.48);
+        if (coreP < 1 || shockP < 1) {
+          context.save();
+          if (dark) context.globalCompositeOperation = "lighter";
+
+          if (coreP < 1) {
+            const corePulse = Math.pow(Math.sin(coreP * Math.PI), 0.9);
+            // 蓄压阶段收缩凝实，随后推背开启向深处点状收束
+            const coreR = lerp(136, 26, coreP) * (1 - warpIntake * 0.18);
+            const coreGrad = context.createRadialGradient(
+              centerX,
+              centerY,
+              0,
+              centerX,
+              centerY,
+              coreR,
+            );
+            if (dark) {
+              coreGrad.addColorStop(0, `rgba(226, 238, 255, ${(0.28 * corePulse).toFixed(3)})`);
+              coreGrad.addColorStop(0.32, effortColor(palette.accent, 0.16 * corePulse));
+              coreGrad.addColorStop(0.66, effortColor(palette.base, 0.1 * corePulse));
+              coreGrad.addColorStop(1, "rgba(110, 148, 255, 0)");
+            } else {
+              coreGrad.addColorStop(0, effortColor(palette.accent, 0.16 * corePulse));
+              coreGrad.addColorStop(0.45, effortColor(palette.base, 0.08 * corePulse));
+              coreGrad.addColorStop(1, effortColor(palette.base, 0));
+            }
+            context.fillStyle = coreGrad;
+            context.beginPath();
+            context.arc(centerX, centerY, coreR, 0, TAU);
+            context.fill();
+          }
+
+          if (shockP > 0 && shockP < 1) {
+            // 冲击环随 warpForward 同步由慢到快冲破视口，内外双柔肩避免生硬圆圈边
+            const shockMove = clamp(warpFwd / 0.82);
+            const shockPulse = smoothstep(0, 0.28, shockP) * (1 - smoothstep(0.42, 1, shockP));
+            const outerR = lerp(Math.min(radiusX, radiusY) * 0.36, diagR * 1.44, shockMove);
+            const portalGrad = context.createRadialGradient(
+              centerX,
+              centerY,
+              outerR * 0.16,
+              centerX,
+              centerY,
+              outerR,
+            );
+            if (dark) {
+              portalGrad.addColorStop(0, "rgba(130, 168, 255, 0)");
+              portalGrad.addColorStop(0.32, effortColor(palette.base, 0.055 * shockPulse));
+              portalGrad.addColorStop(0.56, effortColor(palette.accent, 0.16 * shockPulse));
+              portalGrad.addColorStop(0.76, rgba([168, 208, 255], 0.075 * shockPulse));
+              portalGrad.addColorStop(1, "rgba(110, 148, 255, 0)");
+            } else {
+              portalGrad.addColorStop(0, effortColor(palette.base, 0));
+              portalGrad.addColorStop(0.36, effortColor(palette.base, 0.04 * shockPulse));
+              portalGrad.addColorStop(0.6, effortColor(palette.accent, 0.105 * shockPulse));
+              portalGrad.addColorStop(0.82, effortColor(palette.base, 0.035 * shockPulse));
+              portalGrad.addColorStop(1, effortColor(palette.base, 0));
+            }
+            context.fillStyle = portalGrad;
+            context.beginPath();
+            context.arc(centerX, centerY, outerR, 0, TAU);
+            context.fill();
+          }
+          context.restore();
+        }
+      }
+
+      // 2) 粒子星环（浅色走细腻磁力短线；暗夜切入多光谱深空星尘 + 旋臂星团精灵）
       const wakeRadius = 74;
       const wakeEnabled = planetStates.length === VENDORS.length && !activeWarp;
 
-      for (const particle of particles) {
-        const x = particle.x + Math.sin(motionTime * 0.95 + particle.phase) * 0.018;
-        const y = particle.y + Math.cos(motionTime * 0.81 + particle.phase) * 0.024;
-        const localX = x - fieldX;
-        const localY = y - fieldY;
-        const angle = Math.atan2(localY, localX);
-        const distance = Math.hypot(localX, localY);
-        const offset = distance - ringRadius + Math.sin(angle * 4 + motionTime) * 0.023;
-        const broadRing = Math.exp(-(((offset + 0.034) / 0.142) ** 2));
-        const rim = Math.exp(-((offset / 0.052) ** 2));
-        const arc = 0.34 + 0.66 * (0.5 + 0.5 * Math.cos(angle * 2 + arcPhase)) ** 2;
-        const ringBand = broadRing * 0.41 + rim * 0.59;
-        const strength = ringBand * arc;
-        const movingLight = sweep > 0.01 ? sweep * arcLight(angle, glintAngle, 0.34) : 0;
-        const restingLight = halo > 0.015 ? halo * arcLight(angle, -0.67, 0.41) * 0.34 : 0;
-        const alignment =
-          alignedArc > 0.015 ? alignedArc * arcLight(angle, 2, 0.86) * Math.sqrt(ringBand) : 0;
-        const secondArc =
-          outerArc > 0.015
-            ? outerArc *
-              arcLight(angle, -1.06, 0.78) *
-              Math.exp(-(((offset - 0.17) / 0.058) ** 2))
-            : 0;
-        const highlight =
-          ringBand * (movingLight + restingLight) + alignment * 0.38 + secondArc * 0.53;
+      if (dark) {
+        context.save();
+        context.globalCompositeOperation = "lighter";
+        const calmTime = reducedMotion ? 0 : activeWarp ? warpFreezeOrbitTime : orbitTime;
+        const effUserOrbit = activeWarp ? warpFreezeUserOffset : userOrbitOffset;
+        // 切入暗夜时 580ms 内从 0.76 单调平滑升亮至 1.0，随径向揭幕实时点亮星空
+        const awakenP =
+          reducedMotion || darkAwakenAt === -Infinity
+            ? 1
+            : clamp((now - darkAwakenAt) / 580);
+        const awakenEase = 1 - Math.pow(1 - awakenP, 3);
+        const awakenScale = 1 + (1 - awakenEase) * 0.012;
+        // 暗夜星海采用极克制的 15 秒慢潮汐微呼吸（±1.1%），彻底消除高档位高频胀缩造成的视觉疲劳
+        const cosmicRingRadius = (1 + Math.sin(calmTime * 0.42) * 0.011) * awakenScale;
+        // 黑夜模式鼠标视差跟随幅度减少 25%（0.75x），观感更沉稳深邃
+        const cosmicFieldX = reducedMotion
+          ? 0
+          : effFollowX * 0.75 + Math.sin(calmTime * 0.24) * 0.014;
+        const cosmicFieldY = reducedMotion
+          ? 0
+          : effFollowY * 0.75 + Math.sin(calmTime * 0.31) * 0.01;
+        // 高思考强度改为「望远镜长曝光感」：星光通透度与旋臂丝滑公转温和提升，而非高频抖动
+        const effortGain = 0.74 + smoothedEffort * 0.42;
+        const orbitSpeedScale = 0.75 + smoothedEffort * 0.45;
 
-        const radialAdjustment =
-          alignment * (ringRadius - distance) * 0.88 +
-          secondArc * (ringRadius + 0.17 - distance) * 0.82;
-        const alignmentScale = 1 + radialAdjustment / Math.max(distance, 0.01);
-        const push =
-          alignmentScale *
-          (1 + displacement * (0.22 + strength * (0.8 + particle.seed * 0.53)));
-        const px = (fieldX + localX * push) * radiusX;
-        const py = (fieldY + localY * push) * radiusY;
-        let screenX = centerX + px * tiltCos - py * tiltSin;
-        let screenY = centerY + px * tiltSin + py * tiltCos;
+        // 2A) 全视口深空远景散星（跃迁态按真实深度参与虫洞远近差推进）
+        for (const star of deepStars) {
+          const sx0 =
+            width * 0.5 +
+            star.nx * width * 0.5 +
+            effFollowX * width * 0.056 * star.depth;
+          const sy0 =
+            height * 0.5 +
+            star.ny * height * 0.5 +
+            effFollowY * height * 0.056 * star.depth;
+          const starAwaken =
+            awakenP >= 1 ? 1 : 0.74 + 0.26 * smoothstep(star.depth * 0.25, 0.25 + star.depth * 0.75, awakenP);
+          const twinkle =
+            1 -
+            star.twinkleDepth *
+              0.55 *
+              (0.5 - 0.5 * Math.sin(calmTime * star.twinkleSpeed * 0.48 + star.twinklePhase));
 
-        // 局部物理微引力场：周围粒子顺流绕开行星并染上该家专属色
-        let wakeWeight = 0;
-        let wakeRgb: [number, number, number] | null = null;
-        let wakeDir: number | null = null;
-        if (wakeEnabled) {
-          let bestW = 0;
-          let bestB: PlanetOrbitState | null = null;
-          let bestDx = 0;
-          let bestDy = 0;
-          let bestD = 0;
-          for (const b of planetStates) {
-            if (b.visible < 0.05) continue;
-            const dx = screenX - b.sx;
-            const dy = screenY - b.sy;
-            const d = Math.hypot(dx, dy);
-            // 当前激活厂商随推理强度扩大微引力场范围（74px → 最高 118px），抽引大片星河粒子变色共振
-            const effortScale = 1 + b.activeWeight * (0.16 + b.effortBoost * 0.44);
-            const rInf = wakeRadius * effortScale * (b.isHovered || b.isSelected ? 1.18 : 1);
-            if (d < rInf) {
-              const rawW = (1 - d / rInf) * b.visible * (1 + b.activeWeight * b.effortBoost * 0.26);
-              if (rawW > bestW) {
-                bestW = rawW;
-                bestB = b;
-                bestDx = dx;
-                bestDy = dy;
-                bestD = d;
-              }
+          if (activeWarp) {
+            const depthNorm = clamp((star.depth - 0.18) / 0.77);
+            const z0 = lerp(7.4, 1.24, Math.pow(depthNorm, 0.85));
+            const ray = projectWormholeRay(
+              sx0 - centerX,
+              sy0 - centerY,
+              z0,
+              warpDzHead,
+              warpDzTail,
+              centerX,
+              centerY,
+              width,
+              height,
+              warpMaxReach,
+              warpClearWave,
+            );
+            if (!ray) continue;
+            const radiusBoost = 1 + (ray.headScale - 1) * 0.15;
+            const alpha =
+              star.luminance *
+              twinkle *
+              starAwaken *
+              (1 + warpIntake * 0.16 + warpSpeed * 0.48) *
+              ray.visibility *
+              fade;
+            stampCosmicStreak(
+              context,
+              starAtlas,
+              star.spectral,
+              ray.tailX,
+              ray.tailY,
+              ray.headX,
+              ray.headY,
+              star.drawRadius * radiusBoost,
+              alpha,
+              star.hasFlare,
+            );
+          } else {
+            if (sx0 < -24 || sx0 > width + 24 || sy0 < -24 || sy0 > height + 24) continue;
+            stampCosmicStar(
+              context,
+              starAtlas,
+              star.spectral,
+              sx0,
+              sy0,
+              star.drawRadius * (0.9 + 0.1 * starAwaken),
+              star.luminance * twinkle * starAwaken * fade,
+              star.hasFlare,
+            );
+          }
+        }
+
+        // 2B) 仅跃迁态激活的多波次虫洞核心锥星尘（蓄压阶段轻盈浮现，加速段连续 3 波涌出撑住厚重推背）
+        if (activeWarp) {
+          const coreFadeIn = smoothstep(0.02, 0.14, progress);
+          const wormholeBaseR = Math.min(width, height) * 0.64;
+          for (const star of wormholeStars) {
+            const dx0 = Math.cos(star.angle) * star.radial * wormholeBaseR * 1.18;
+            const dy0 = Math.sin(star.angle) * star.radial * wormholeBaseR * 0.86;
+            const ray = projectWormholeRay(
+              dx0,
+              dy0,
+              star.z0,
+              warpDzHead,
+              warpDzTail,
+              centerX,
+              centerY,
+              width,
+              height,
+              warpMaxReach,
+              warpClearWave,
+            );
+            if (!ray) continue;
+            const alpha =
+              star.luminance *
+              coreFadeIn *
+              (0.88 + warpSpeed * 0.62) *
+              ray.visibility *
+              fade;
+            const headR = star.drawRadius * (0.9 + (ray.headScale - 1) * 0.16);
+            stampCosmicStreak(
+              context,
+              starAtlas,
+              star.spectral,
+              ray.tailX,
+              ray.tailY,
+              ray.headX,
+              ray.headY,
+              headR,
+              alpha,
+              star.hasFlare,
+            );
+          }
+
+          // 2B-2) 近景贴镜失焦散景大光带：沿四边角落分波次呼啸掠过，赋予镜头真实物理体量感
+          const bokehFadeIn = smoothstep(0.11, 0.24, progress);
+          if (bokehFadeIn > 0.01) {
+            for (const bk of bokehStreaks) {
+              const dx0 = Math.cos(bk.angle) * bk.radial * wormholeBaseR * 1.24;
+              const dy0 = Math.sin(bk.angle) * bk.radial * wormholeBaseR * 0.92;
+              const ray = projectWormholeRay(
+                dx0,
+                dy0,
+                bk.z0,
+                warpDzHead,
+                warpDzTail,
+                centerX,
+                centerY,
+                width,
+                height,
+                warpMaxReach,
+                warpClearWave,
+              );
+              if (!ray) continue;
+              const bkAlpha =
+                bk.luminance *
+                bokehFadeIn *
+                (0.55 + warpSpeed * 0.95) *
+                ray.visibility *
+                fade;
+              const thick = bk.thickness * (0.85 + (ray.headScale - 1) * 0.34);
+              stampBokehStreak(
+                context,
+                starAtlas,
+                bk.spectral,
+                ray.tailX,
+                ray.tailY,
+                ray.headX,
+                ray.headY,
+                thick,
+                bkAlpha,
+              );
             }
           }
-          if (bestB && bestW > 0.01) {
-            const smoothW = Math.pow(bestW, 1.35);
-            wakeWeight = smoothW;
-            const invD = 1 / Math.max(bestD, 1);
-            const nx = bestDx * invD;
-            const ny = bestDy * invD;
-            const wakePush = Math.sin(clamp(bestW) * Math.PI) * 14.5 * (bestB.isHovered ? 1.25 : 1);
-            screenX += nx * wakePush - bestB.tx * smoothW * 4.5;
-            screenY += ny * wakePush - bestB.ty * smoothW * 4.5;
+        }
 
-            const side = bestDx * bestB.ty - bestDy * bestB.tx >= 0 ? 1 : -1;
-            wakeDir = Math.atan2(bestB.ty + ny * 0.42 * side, bestB.tx + nx * 0.42 * side);
-            const colorU = bestB.vendor.trail.spectrum
-              ? (Math.atan2(bestDy, bestDx) / TAU + 1) % 1
-              : clamp(1 - bestW);
-            wakeRgb = sampleTrailColor(bestB.vendor.trail, colorU);
+        // 2C) 环绕工作区的多旋臂星团与星尘带（待命态平稳公转；蓄压期沿原旋臂方向轻微旋紧再逐层爆发）
+        const spiralCoil = activeWarp ? warpIntake * 0.032 : 0;
+        for (const star of galaxyStars) {
+          const angle =
+            star.angle +
+            calmTime * star.orbitSpeed * orbitSpeedScale +
+            effUserOrbit * 0.24 +
+            spiralCoil +
+            Math.sin(calmTime * 0.32 + star.wobblePhase) * 0.006;
+          const rBase =
+            star.radius * cosmicRingRadius +
+            Math.cos(calmTime * 0.28 + star.wobblePhase) * 0.005;
+          const offset = rBase - cosmicRingRadius + Math.sin(angle * 4 + calmTime * 0.36) * 0.01;
+          const ringBand = Math.exp(-((offset / 0.16) ** 2));
+
+          const movingLight = sweep > 0.01 ? sweep * arcLight(angle, glintAngle, 0.36) : 0;
+          const restingLight = halo > 0.015 ? halo * arcLight(angle, -0.67, 0.42) * 0.34 : 0;
+          const alignment =
+            alignedArc > 0.015 ? alignedArc * arcLight(angle, 2, 0.86) * Math.sqrt(ringBand) : 0;
+          const secondArc =
+            outerArc > 0.015
+              ? outerArc *
+                arcLight(angle, -1.06, 0.78) *
+                Math.exp(-(((offset - 0.17) / 0.07) ** 2))
+              : 0;
+          const latticeNode =
+            latticeStrength > 0.015
+              ? latticeStrength *
+                Math.pow(0.5 + 0.5 * Math.cos(angle * 6 + calmTime * 0.28), 3) *
+                Math.sqrt(ringBand)
+              : 0;
+          const circuitInner =
+            circuitStrength > 0.015 ? Math.exp(-(((offset + 0.1) / 0.055) ** 2)) : 0;
+          const circuitOuter =
+            circuitStrength > 0.015 ? Math.exp(-(((offset - 0.12) / 0.055) ** 2)) : 0;
+          const circuitTrack =
+            circuitStrength > 0.015
+              ? circuitStrength *
+                (circuitInner * (0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.cos(angle * 4 - 0.45), 2)) +
+                  circuitOuter * (0.28 + 0.72 * Math.pow(0.5 + 0.5 * Math.sin(angle * 4 + 0.45), 2))) *
+                0.52
+              : 0;
+          const circuitSignal =
+            circuitSweep > 0.01
+              ? circuitSweep *
+                (circuitInner * arcLight(angle, circuitAngle, 0.36) +
+                  circuitOuter * arcLight(angle, -circuitAngle + Math.PI * 0.6, 0.36))
+              : 0;
+          const bloomPetal =
+            bloomStrength > 0.015
+              ? (bloomStrength * 0.42 + bloomPulse * 0.48) *
+                Math.pow(0.5 + 0.5 * Math.cos(angle * 6 - calmTime * 0.32), 2.2) *
+                Math.sqrt(ringBand)
+              : 0;
+          const highlight =
+            ringBand * (movingLight + restingLight) +
+            bloomPetal * 0.45 +
+            alignment * 0.35 +
+            secondArc * 0.46 +
+            latticeNode * 0.42 +
+            circuitTrack * 0.38 +
+            circuitSignal * 0.62;
+
+          // 暗夜模式下把径向拉扯控制在极轻微幅度，主要以星光增亮体现模型特性，杜绝整环反复膨胀收缩
+          const bloomTarget =
+            cosmicRingRadius + (0.025 + bloomPulse * 0.02) * Math.cos(angle * 6 - calmTime * 0.32);
+          const latticeTarget = cosmicRingRadius + 0.02 * Math.cos(angle * 6 + calmTime * 0.28);
+          const radialAdjustment =
+            bloomPetal * (bloomTarget - rBase) * 0.22 +
+            alignment * (cosmicRingRadius - rBase) * 0.28 +
+            secondArc * (cosmicRingRadius + 0.14 - rBase) * 0.28 +
+            latticeNode * (latticeTarget - rBase) * 0.24 +
+            circuitStrength *
+              (circuitOuter * (cosmicRingRadius + 0.1 - rBase) * 0.24 +
+                circuitInner * (cosmicRingRadius - 0.08 - rBase) * 0.22);
+
+          const rFinal = rBase + radialAdjustment;
+          const px = (cosmicFieldX + Math.cos(angle) * rFinal) * radiusX;
+          const py = (cosmicFieldY + Math.sin(angle) * rFinal) * radiusY;
+          let screenX = centerX + px * tiltCos - py * tiltSin;
+          let screenY = centerY + px * tiltSin + py * tiltCos;
+
+          const starAwaken =
+            awakenP >= 1 ? 1 : 0.76 + 0.24 * smoothstep(star.seed * 0.28, 0.28 + star.seed * 0.72, awakenP);
+          const twinkle =
+            1 -
+            star.twinkleDepth *
+              0.52 *
+              (0.5 - 0.5 * Math.sin(calmTime * star.twinkleSpeed * 0.46 + star.twinklePhase));
+
+          if (activeWarp) {
+            const nearness = clamp(star.luminance * 0.52 + star.seed * 0.48);
+            const z0 = lerp(6.0, 1.18, Math.pow(nearness, 0.88));
+            const ray = projectWormholeRay(
+              screenX - centerX,
+              screenY - centerY,
+              z0,
+              warpDzHead,
+              warpDzTail,
+              centerX,
+              centerY,
+              width,
+              height,
+              warpMaxReach,
+              warpClearWave,
+            );
+            if (!ray) continue;
+
+            const starRadius =
+              star.drawRadius *
+              (0.88 + star.knotBoost * 0.12 + highlight * 0.2) *
+              (0.92 + 0.08 * starAwaken) *
+              (1 + warpIntake * 0.12 + (ray.headScale - 1) * 0.14);
+            const starAlpha =
+              (star.luminance * twinkle * effortGain * starAwaken + highlight * 0.34) *
+              (1 + warpIntake * 0.18 + warpSpeed * 0.52) *
+              ray.visibility *
+              fade;
+
+            stampCosmicStreak(
+              context,
+              starAtlas,
+              star.spectral,
+              ray.tailX,
+              ray.tailY,
+              ray.headX,
+              ray.headY,
+              starRadius,
+              starAlpha,
+              star.hasFlare || (highlight > 0.48 && star.seed > 0.86),
+            );
+            continue;
+          }
+
+          // 行星局部引力微扰 + 专属星光晕染
+          let wakeWeight = 0;
+          let wakeRgb: [number, number, number] | null = null;
+          if (wakeEnabled) {
+            let bestW = 0;
+            let bestB: PlanetOrbitState | null = null;
+            let bestDx = 0;
+            let bestDy = 0;
+            let bestD = 0;
+            for (const b of planetStates) {
+              if (b.visible < 0.05) continue;
+              const dx = screenX - b.sx;
+              const dy = screenY - b.sy;
+              const d = Math.hypot(dx, dy);
+              const effortScale = 1 + b.activeWeight * (0.16 + b.effortBoost * 0.44);
+              const rInf = wakeRadius * effortScale * (b.isHovered || b.isSelected ? 1.18 : 1);
+              if (d < rInf) {
+                const rawW = (1 - d / rInf) * b.visible * (1 + b.activeWeight * b.effortBoost * 0.26);
+                if (rawW > bestW) {
+                  bestW = rawW;
+                  bestB = b;
+                  bestDx = dx;
+                  bestDy = dy;
+                  bestD = d;
+                }
+              }
+            }
+            if (bestB && bestW > 0.01) {
+              const smoothW = Math.pow(bestW, 1.35);
+              wakeWeight = smoothW;
+              const invD = 1 / Math.max(bestD, 1);
+              const nx = bestDx * invD;
+              const ny = bestDy * invD;
+              const wakePush = Math.sin(clamp(bestW) * Math.PI) * 14.5 * (bestB.isHovered ? 1.25 : 1);
+              screenX += nx * wakePush - bestB.tx * smoothW * 4.5;
+              screenY += ny * wakePush - bestB.ty * smoothW * 4.5;
+
+              const bestTrail = resolveVendorTrail(bestB.vendor, true);
+              const colorU = bestTrail.spectrum
+                ? (Math.atan2(bestDy, bestDx) / TAU + 1) % 1
+                : clamp(1 - bestW);
+              wakeRgb = sampleTrailColor(bestTrail, colorU);
+            }
+          }
+
+          if (screenX < -28 || screenX > width + 28 || screenY < -28 || screenY > height + 28) {
+            continue;
+          }
+
+          const starRadius =
+            star.drawRadius *
+            (0.92 + star.knotBoost * 0.16 + highlight * 0.24 + wakeWeight * 0.24) *
+            (0.92 + 0.08 * starAwaken);
+          const starAlpha =
+            (star.luminance * twinkle * effortGain * starAwaken + highlight * 0.34 + wakeWeight * 0.22) *
+            fade;
+
+          stampCosmicStar(
+            context,
+            starAtlas,
+            star.spectral,
+            screenX,
+            screenY,
+            starRadius,
+            starAlpha,
+            star.hasFlare || (highlight > 0.48 && star.seed > 0.86),
+          );
+
+          // 被行星引力场掠过的星点附加一层极柔的厂商专属色微光晕
+          if (wakeRgb && wakeWeight > 0.16) {
+            context.globalAlpha = clamp(wakeWeight * 0.55 * fade, 0, 0.72);
+            context.fillStyle = rgba(wakeRgb, 1);
+            context.beginPath();
+            context.arc(screenX, screenY, Math.max(1.1, starRadius * 0.38), 0, TAU);
+            context.fill();
           }
         }
+        context.restore();
+        context.globalAlpha = 1;
+      } else {
+        context.lineCap = "round";
+        for (const particle of particles) {
+          const x = particle.x + Math.sin(effTime * 0.95 + particle.phase) * 0.018;
+          const y = particle.y + Math.cos(effTime * 0.81 + particle.phase) * 0.024;
+          const localX = x - fieldX;
+          const localY = y - fieldY;
+          const angle = Math.atan2(localY, localX);
+          const distance = Math.hypot(localX, localY);
+          const offset = distance - ringRadius + Math.sin(angle * 4 + effTime) * 0.023;
+          const broadRing = Math.exp(-(((offset + 0.034) / 0.142) ** 2));
+          const rim = Math.exp(-((offset / 0.052) ** 2));
+          const arc = 0.34 + 0.66 * (0.5 + 0.5 * Math.cos(angle * 2 + arcPhase)) ** 2;
+          const ringBand = broadRing * 0.41 + rim * 0.59;
+          const strength = ringBand * arc;
+          const movingLight = sweep > 0.01 ? sweep * arcLight(angle, glintAngle, 0.34) : 0;
+          const restingLight = halo > 0.015 ? halo * arcLight(angle, -0.67, 0.41) * 0.34 : 0;
+          const alignment =
+            alignedArc > 0.015 ? alignedArc * arcLight(angle, 2, 0.86) * Math.sqrt(ringBand) : 0;
+          const secondArc =
+            outerArc > 0.015
+              ? outerArc *
+                arcLight(angle, -1.06, 0.78) *
+                Math.exp(-(((offset - 0.17) / 0.058) ** 2))
+              : 0;
+          const latticeNode =
+            latticeStrength > 0.015
+              ? latticeStrength *
+                Math.pow(0.5 + 0.5 * Math.cos(angle * 6 + effTime * 0.42), 3) *
+                Math.sqrt(ringBand)
+              : 0;
+          const circuitInner =
+            circuitStrength > 0.015
+              ? Math.exp(-(((offset + 0.1) / 0.048) ** 2))
+              : 0;
+          const circuitOuter =
+            circuitStrength > 0.015
+              ? Math.exp(-(((offset - 0.12) / 0.048) ** 2))
+              : 0;
+          const circuitTrack =
+            circuitStrength > 0.015
+              ? circuitStrength *
+                (circuitInner * (0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.cos(angle * 4 - 0.45), 2)) +
+                  circuitOuter * (0.28 + 0.72 * Math.pow(0.5 + 0.5 * Math.sin(angle * 4 + 0.45), 2))) *
+                0.52
+              : 0;
+          const circuitSignal =
+            circuitSweep > 0.01
+              ? circuitSweep *
+                (circuitInner * arcLight(angle, circuitAngle, 0.34) +
+                  circuitOuter * arcLight(angle, -circuitAngle + Math.PI * 0.6, 0.34))
+              : 0;
+          const bloomPetal =
+            bloomStrength > 0.015
+              ? (bloomStrength * 0.48 + bloomPulse * 0.62) *
+                Math.pow(0.5 + 0.5 * Math.cos(angle * 6 - effTime * 0.62), 2.2) *
+                Math.sqrt(ringBand)
+              : 0;
+          const highlight =
+            ringBand * (movingLight + restingLight) +
+            bloomPetal * 0.54 +
+            alignment * 0.38 +
+            secondArc * 0.53 +
+            latticeNode * 0.46 +
+            circuitTrack * 0.42 +
+            circuitSignal * 0.72;
 
-        if (strength < 0.06 && highlight < 0.04 && wakeWeight < 0.08 && particle.seed < 0.47) {
-          continue;
+          const bloomTarget =
+            ringRadius + (0.065 + bloomPulse * 0.05) * Math.cos(angle * 6 - effTime * 0.62);
+          const latticeTarget = ringRadius + 0.045 * Math.cos(angle * 6 + effTime * 0.42);
+          const radialAdjustment =
+            bloomPetal * (bloomTarget - distance) * 0.72 +
+            alignment * (ringRadius - distance) * 0.88 +
+            secondArc * (ringRadius + 0.17 - distance) * 0.82 +
+            latticeNode * (latticeTarget - distance) * 0.78 +
+            circuitStrength *
+              (circuitOuter * (ringRadius + 0.12 - distance) * 0.65 +
+                circuitInner * (ringRadius - 0.1 - distance) * 0.55);
+          const alignmentScale = 1 + radialAdjustment / Math.max(distance, 0.01);
+          const px = (fieldX + localX * alignmentScale) * radiusX;
+          const py = (fieldY + localY * alignmentScale) * radiusY;
+          let screenX = centerX + px * tiltCos - py * tiltSin;
+          let screenY = centerY + px * tiltSin + py * tiltCos;
+
+          if (activeWarp) {
+            if (strength < 0.06 && highlight < 0.04 && particle.seed < 0.47) continue;
+            const z0 = lerp(6.0, 1.2, Math.pow(particle.seed, 0.86));
+            const ray = projectWormholeRay(
+              screenX - centerX,
+              screenY - centerY,
+              z0,
+              warpDzHead,
+              warpDzTail,
+              centerX,
+              centerY,
+              width,
+              height,
+              warpMaxReach,
+              warpClearWave,
+            );
+            if (!ray) continue;
+
+            const baseRgb: RgbColor =
+              highlight > 0.06
+                ? displayedVisual
+                  ? EFFECT_COLORS[displayedVisual.effect]
+                  : palette.accent
+                : rim * arc > 0.33 && particle.seed > 0.3
+                  ? palette.accent
+                  : palette.base;
+            const segLen = Math.hypot(ray.headX - ray.tailX, ray.headY - ray.tailY);
+            const idleLen =
+              0.42 +
+              particle.seed * 0.72 +
+              strength * 3.25 * palette.trail +
+              highlight * 4;
+            // 衔接白模式待机态：蓄压期将所有磁力短线从待机倾角丝滑锁正指向虫洞中心（零首帧偏折）
+            let idleDir =
+              Math.atan2(localY * radiusY, localX * radiusX) +
+              tilt +
+              Math.sin(particle.phase + effTime) * 0.18;
+            if (highlight > 0.03) {
+              const tangent = Math.atan2(localX * radiusY, -localY * radiusX) + tilt;
+              const turn = tangent - idleDir;
+              const shortestTurn = Math.atan2(Math.sin(2 * turn), Math.cos(2 * turn)) / 2;
+              idleDir += shortestTurn * Math.min(1, highlight * 2.7);
+            }
+            const radialDir = Math.atan2(ray.headY - centerY, ray.headX - centerX);
+            const deltaDir = radialDir - idleDir;
+            const lockedDir =
+              idleDir +
+              (Math.atan2(Math.sin(2 * deltaDir), Math.cos(2 * deltaDir)) / 2) * warpAlignLock;
+
+            const baseAlpha = Math.min(
+              0.94,
+              (0.12 + strength * 0.72 + highlight * 0.64 + secondArc * 0.14) *
+                (1 + warpIntake * 0.2 + warpSpeed * 0.46) *
+                ray.visibility *
+                fade,
+            );
+            const lw =
+              (0.68 + strength * 0.85) *
+              (1 + warpIntake * 0.22 + (ray.headScale - 1) * 0.24);
+
+            if (segLen < Math.max(4.2, idleLen * 1.15)) {
+              const halfL = Math.max(idleLen, segLen) * 0.5;
+              context.globalAlpha = baseAlpha;
+              context.strokeStyle = rgba(baseRgb, 1);
+              context.lineWidth = lw;
+              context.beginPath();
+              context.moveTo(
+                ray.headX - Math.cos(lockedDir) * halfL,
+                ray.headY - Math.sin(lockedDir) * halfL,
+              );
+              context.lineTo(
+                ray.headX + Math.cos(lockedDir) * halfL,
+                ray.headY + Math.sin(lockedDir) * halfL,
+              );
+              context.stroke();
+            } else {
+              // 浅色双段细锐棱镜光针：柔和长尾 + 凝实前段，零渐变对象分配
+              const midX = lerp(ray.tailX, ray.headX, 0.58);
+              const midY = lerp(ray.tailY, ray.headY, 0.58);
+              context.strokeStyle = rgba(baseRgb, 1);
+              context.globalAlpha = baseAlpha * 0.4;
+              context.lineWidth = lw * 0.9;
+              context.beginPath();
+              context.moveTo(ray.tailX, ray.tailY);
+              context.lineTo(ray.headX, ray.headY);
+              context.stroke();
+
+              context.globalAlpha = baseAlpha;
+              context.lineWidth = lw * 1.24;
+              context.beginPath();
+              context.moveTo(midX, midY);
+              context.lineTo(ray.headX, ray.headY);
+              context.stroke();
+            }
+            continue;
+          }
+
+          // 局部物理微引力场：周围粒子顺流绕开行星并染上该家专属色
+          let wakeWeight = 0;
+          let wakeRgb: [number, number, number] | null = null;
+          let wakeDir: number | null = null;
+          if (wakeEnabled) {
+            let bestW = 0;
+            let bestB: PlanetOrbitState | null = null;
+            let bestDx = 0;
+            let bestDy = 0;
+            let bestD = 0;
+            for (const b of planetStates) {
+              if (b.visible < 0.05) continue;
+              const dx = screenX - b.sx;
+              const dy = screenY - b.sy;
+              const d = Math.hypot(dx, dy);
+              // 当前激活厂商随推理强度扩大微引力场范围（74px → 最高 118px），抽引大片星河粒子变色共振
+              const effortScale = 1 + b.activeWeight * (0.16 + b.effortBoost * 0.44);
+              const rInf = wakeRadius * effortScale * (b.isHovered || b.isSelected ? 1.18 : 1);
+              if (d < rInf) {
+                const rawW = (1 - d / rInf) * b.visible * (1 + b.activeWeight * b.effortBoost * 0.26);
+                if (rawW > bestW) {
+                  bestW = rawW;
+                  bestB = b;
+                  bestDx = dx;
+                  bestDy = dy;
+                  bestD = d;
+                }
+              }
+            }
+            if (bestB && bestW > 0.01) {
+              const smoothW = Math.pow(bestW, 1.35);
+              wakeWeight = smoothW;
+              const invD = 1 / Math.max(bestD, 1);
+              const nx = bestDx * invD;
+              const ny = bestDy * invD;
+              const wakePush = Math.sin(clamp(bestW) * Math.PI) * 14.5 * (bestB.isHovered ? 1.25 : 1);
+              screenX += nx * wakePush - bestB.tx * smoothW * 4.5;
+              screenY += ny * wakePush - bestB.ty * smoothW * 4.5;
+
+              const side = bestDx * bestB.ty - bestDy * bestB.tx >= 0 ? 1 : -1;
+              wakeDir = Math.atan2(bestB.ty + ny * 0.42 * side, bestB.tx + nx * 0.42 * side);
+              const bestTrail = resolveVendorTrail(bestB.vendor, false);
+              const colorU = bestTrail.spectrum
+                ? (Math.atan2(bestDy, bestDx) / TAU + 1) % 1
+                : clamp(1 - bestW);
+              wakeRgb = sampleTrailColor(bestTrail, colorU);
+            }
+          }
+
+          if (strength < 0.06 && highlight < 0.04 && wakeWeight < 0.08 && particle.seed < 0.47) {
+            continue;
+          }
+
+          const length =
+            0.42 +
+            particle.seed * 0.72 +
+            strength * 3.25 * palette.trail +
+            highlight * 4 +
+            wakeWeight * 5.2;
+          let direction =
+            Math.atan2(localY * radiusY, localX * radiusX) +
+            tilt +
+            Math.sin(particle.phase + effTime) * 0.18;
+          if (highlight > 0.03) {
+            const tangent = Math.atan2(localX * radiusY, -localY * radiusX) + tilt;
+            const turn = tangent - direction;
+            const shortestTurn = Math.atan2(Math.sin(2 * turn), Math.cos(2 * turn)) / 2;
+            direction += shortestTurn * Math.min(1, highlight * 2.7);
+          }
+          if (wakeDir !== null) {
+            const turnW = wakeDir - direction;
+            const shortW = Math.atan2(Math.sin(2 * turnW), Math.cos(2 * turnW)) / 2;
+            direction += shortW * clamp(wakeWeight * 1.15);
+          }
+
+          const tailX = (Math.cos(direction) * length) / 2;
+          const tailY = (Math.sin(direction) * length) / 2;
+          context.globalAlpha = Math.min(
+            1,
+            (0.12 +
+              strength * 0.7 +
+              highlight * 0.64 +
+              secondArc * 0.14 +
+              wakeWeight * 0.42) *
+              fade,
+          );
+
+          const baseRgb: RgbColor =
+            highlight > 0.06
+              ? displayedVisual
+                ? EFFECT_COLORS[displayedVisual.effect]
+                : palette.accent
+              : rim * arc > 0.33 && particle.seed > 0.3
+                ? palette.accent
+                : palette.base;
+          const finalRgb = wakeRgb ? mixRgb(baseRgb, wakeRgb, clamp(wakeWeight * 1.35)) : baseRgb;
+
+          context.strokeStyle = rgba(finalRgb, 1);
+          context.lineWidth = 0.68 + strength * 0.85 + wakeWeight * 0.8;
+          context.beginPath();
+          context.moveTo(screenX - tailX, screenY - tailY);
+          context.lineTo(screenX + tailX, screenY + tailY);
+          context.stroke();
         }
 
-        const length =
-          0.42 +
-          particle.seed * 0.72 +
-          strength * (3.25 + spread * 12) * palette.trail +
-          highlight * 4 +
-          wakeWeight * 5.2;
-        let direction =
-          Math.atan2(localY * radiusY, localX * radiusX) +
-          tilt +
-          Math.sin(particle.phase + motionTime) * 0.18;
-        if (highlight > 0.03) {
-          const tangent = Math.atan2(localX * radiusY, -localY * radiusX) + tilt;
-          const turn = tangent - direction;
-          const shortestTurn = Math.atan2(Math.sin(2 * turn), Math.cos(2 * turn)) / 2;
-          direction += shortestTurn * Math.min(1, highlight * 2.7);
+        // 浅色模式补充多波次中心棱镜光针 + 周边柔雾散景棱镜宽光带，保持纯净白底与厚重推背兼得
+        if (activeWarp) {
+          const coreFadeIn = smoothstep(0.02, 0.14, progress);
+          const wormholeBaseR = Math.min(width, height) * 0.64;
+          for (let i = 0; i < wormholeStars.length; i += 2) {
+            const star = wormholeStars[i];
+            const dx0 = Math.cos(star.angle) * star.radial * wormholeBaseR * 1.18;
+            const dy0 = Math.sin(star.angle) * star.radial * wormholeBaseR * 0.86;
+            const ray = projectWormholeRay(
+              dx0,
+              dy0,
+              star.z0,
+              warpDzHead,
+              warpDzTail,
+              centerX,
+              centerY,
+              width,
+              height,
+              warpMaxReach,
+              warpClearWave,
+            );
+            if (!ray) continue;
+            const rgb = star.seed > 0.45 ? palette.accent : palette.base;
+            const alpha =
+              star.luminance *
+              0.62 *
+              coreFadeIn *
+              (0.88 + warpSpeed * 0.56) *
+              ray.visibility *
+              fade;
+            const segLen = Math.hypot(ray.headX - ray.tailX, ray.headY - ray.tailY);
+            const lw = (0.72 + star.drawRadius * 0.19) * (0.92 + (ray.headScale - 1) * 0.25);
+            context.strokeStyle = rgba(rgb, 1);
+            if (segLen < 3.2) {
+              context.globalAlpha = alpha;
+              context.fillStyle = rgba(rgb, 1);
+              context.beginPath();
+              context.arc(ray.headX, ray.headY, Math.max(0.9, lw * 0.72), 0, TAU);
+              context.fill();
+            } else {
+              const midX = lerp(ray.tailX, ray.headX, 0.56);
+              const midY = lerp(ray.tailY, ray.headY, 0.56);
+              context.globalAlpha = alpha * 0.36;
+              context.lineWidth = lw * 0.85;
+              context.beginPath();
+              context.moveTo(ray.tailX, ray.tailY);
+              context.lineTo(ray.headX, ray.headY);
+              context.stroke();
+
+              context.globalAlpha = alpha;
+              context.lineWidth = lw * 1.24;
+              context.beginPath();
+              context.moveTo(midX, midY);
+              context.lineTo(ray.headX, ray.headY);
+              context.stroke();
+            }
+          }
+
+          // 浅色近景失焦棱镜光带（使用预烘焙高斯羽化贴图，彻底消除圆角胶囊边，纯白清爽且有厚重体量）
+          const bokehFadeIn = smoothstep(0.11, 0.24, progress);
+          if (bokehFadeIn > 0.01) {
+            for (let i = 0; i < bokehStreaks.length; i += 2) {
+              const bk = bokehStreaks[i];
+              const dx0 = Math.cos(bk.angle) * bk.radial * wormholeBaseR * 1.24;
+              const dy0 = Math.sin(bk.angle) * bk.radial * wormholeBaseR * 0.92;
+              const ray = projectWormholeRay(
+                dx0,
+                dy0,
+                bk.z0,
+                warpDzHead,
+                warpDzTail,
+                centerX,
+                centerY,
+                width,
+                height,
+                warpMaxReach,
+                warpClearWave,
+              );
+              if (!ray) continue;
+              const bkAlpha =
+                bk.luminance *
+                0.78 *
+                bokehFadeIn *
+                (0.55 + warpSpeed * 0.92) *
+                ray.visibility *
+                fade;
+              const thick = bk.thickness * (0.85 + (ray.headScale - 1) * 0.3);
+              stampBokehStreak(
+                context,
+                starAtlas,
+                bk.spectral,
+                ray.tailX,
+                ray.tailY,
+                ray.headX,
+                ray.headY,
+                thick,
+                bkAlpha,
+                true,
+              );
+            }
+          }
         }
-        if (wakeDir !== null) {
-          const turnW = wakeDir - direction;
-          const shortW = Math.atan2(Math.sin(2 * turnW), Math.cos(2 * turnW)) / 2;
-          direction += shortW * clamp(wakeWeight * 1.15);
-        }
-
-        const tailX = (Math.cos(direction) * length) / 2;
-        const tailY = (Math.sin(direction) * length) / 2;
-        context.globalAlpha = Math.min(
-          1,
-          (0.12 +
-            strength * (0.7 + progress * 0.38) +
-            highlight * 0.64 +
-            secondArc * 0.14 +
-            wakeWeight * 0.42) *
-            fade,
-        );
-
-        const baseRgb: RgbColor =
-          highlight > 0.06
-            ? displayedVisual
-              ? EFFECT_COLORS[displayedVisual.effect]
-              : palette.accent
-            : rim * arc > 0.33 && particle.seed > 0.3
-              ? palette.accent
-              : palette.base;
-        const finalRgb = wakeRgb ? mixRgb(baseRgb, wakeRgb, clamp(wakeWeight * 1.35)) : baseRgb;
-
-        context.strokeStyle = rgba(finalRgb, 1);
-        context.lineWidth = 0.68 + strength * 0.85 + wakeWeight * 0.8;
-        context.beginPath();
-        context.moveTo(screenX - tailX, screenY - tailY);
-        context.lineTo(screenX + tailX, screenY + tailY);
-        context.stroke();
+        context.globalAlpha = 1;
       }
-      context.globalAlpha = 1;
 
-      // 3) 常规待命态 vs 首次发送跃迁态（选中行星俯冲精准落入首条 AI 回复缩微星核 + 其余 8 颗温柔退幕）
+      // 3) 常规待命态 vs 首次发送跃迁态（蓄压承接待机彗尾 → 选中行星随推背峰值俯冲落入 AI 回复，其余 8 颗蓄压微收后重甩出画框）
       if (activeWarp && warpSnapshots && warpSnapshots.length === VENDORS.length) {
+        // 蓄压期（0 ~ 170ms）保留并柔收待机态行星彗尾与环绕能量环，确保待机到跃迁首帧 100% 零突兀断层
+        const idleTrailFade = 1 - smoothstep(0.02, 0.16, progress);
+        if (idleTrailFade > 0.01 && warpPlanetStates && warpPlanetStates.length === VENDORS.length) {
+          const intakeScale = 1 - warpIntake * 0.045;
+          const intakeStates = warpPlanetStates.map((st) => ({
+            ...st,
+            orbitRx: st.orbitRx * intakeScale,
+            orbitRy: st.orbitRy * intakeScale,
+            sx: centerX + (st.sx - centerX) * intakeScale,
+            sy: centerY + (st.sy - centerY) * intakeScale,
+          }));
+          drawPlanetTrails(context, intakeStates, idleTrailFade, surgeProgress, dark);
+        }
+
         // 精准读取首条 AI 回复的真实锚点位置，让俯冲行星严丝合缝落进左上角缩微厂商星核！
         const handoffEl = area.querySelector<HTMLElement>("[data-handoff-anchor='1']");
         const handoffRect = handoffEl?.getBoundingClientRect();
@@ -865,21 +1873,29 @@ export function WelcomeParticleField({
         for (const snap of warpSnapshots) {
           const btn = badgeButtonsRef.current[snap.index];
           const vendor = VENDORS[snap.index];
-          const trail = vendor.trail;
+          const trail = resolveVendorTrail(vendor, dark);
 
           if (snap.isActive) {
-            // 当前选中模型行星：沿二次贝塞尔弧线俯冲注入任务发射点！
-            const rawDive = clamp(progress / 0.46);
-            const diveP = rawDive * rawDive * (3 - 2 * rawDive);
+            // 蓄压期（0 ~ 9%）随星海轻微向心锁轨凝光，随后沿原二次贝塞尔弧线带惯性俯冲接入 AI 回复！
+            const intakePull = 1 - warpIntake * 0.045;
+            const startX = centerX + (snap.sx - centerX) * intakePull;
+            const startY = centerY + (snap.sy - centerY) * intakePull;
+            const rawDive = clamp((progress - 0.085) / 0.44);
+            // 先蓄力抬速再顺滑制动落位（cubic in-out 偏后段稳刹），与虫洞破壁同频
+            const diveP =
+              rawDive < 0.5
+                ? 4 * rawDive * rawDive * rawDive
+                : 1 - Math.pow(-2 * rawDive + 2, 3) / 2;
             // 控制点沿原有轨道切线微微延伸，保证脱离轨道瞬间 C1 平滑无折角
-            const ctrlX = (snap.sx + targetX) * 0.5 + snap.tx * 74;
-            const ctrlY = (snap.sy + targetY) * 0.5 + snap.ty * 58;
-            const curPt = quadBezierPoint(snap.sx, snap.sy, ctrlX, ctrlY, targetX, targetY, diveP);
+            const ctrlX = (startX + targetX) * 0.5 + snap.tx * 78;
+            const ctrlY = (startY + targetY) * 0.5 + snap.ty * 60;
+            const curPt = quadBezierPoint(startX, startY, ctrlX, ctrlY, targetX, targetY, diveP);
 
-            // 绘制浓缩璀璨的专属色俯冲彗星光弧（从身后跟随至当前点）
-            const trailFade = 1 - smoothstep(0.36, 0.72, progress);
-            if (trailFade > 0.01) {
-              const tailStart = Math.max(0, diveP - 0.44);
+            // 绘制浓缩璀璨的专属色俯冲彗星光弧（随脱离轨道无缝接棒）
+            const trailIn = smoothstep(0.06, 0.14, progress);
+            const trailFade = trailIn * (1 - smoothstep(0.46, 0.78, progress));
+            if (trailFade > 0.01 && diveP > 0.005) {
+              const tailStart = Math.max(0, diveP - 0.46);
               const segs = 18;
               context.save();
               context.lineCap = "round";
@@ -888,21 +1904,21 @@ export function WelcomeParticleField({
                 const u1 = (s + 1) / segs;
                 const t0 = lerp(diveP, tailStart, u0);
                 const t1 = lerp(diveP, tailStart, u1);
-                const p0 = quadBezierPoint(snap.sx, snap.sy, ctrlX, ctrlY, targetX, targetY, t0);
-                const p1 = quadBezierPoint(snap.sx, snap.sy, ctrlX, ctrlY, targetX, targetY, t1);
+                const p0 = quadBezierPoint(startX, startY, ctrlX, ctrlY, targetX, targetY, t0);
+                const p1 = quadBezierPoint(startX, startY, ctrlX, ctrlY, targetX, targetY, t1);
                 const uMid = (u0 + u1) * 0.5;
                 const col = sampleTrailColor(trail, uMid);
                 const f = Math.pow(1 - uMid, 1.5) * trailFade;
 
-                context.strokeStyle = rgba(col, clamp(0.24 * f, 0, 0.6));
-                context.lineWidth = 14 * (1 - uMid * 0.75);
+                context.strokeStyle = rgba(col, clamp(0.26 * f, 0, 0.62));
+                context.lineWidth = 15 * (1 - uMid * 0.75);
                 context.beginPath();
                 context.moveTo(p0.x, p0.y);
                 context.lineTo(p1.x, p1.y);
                 context.stroke();
 
-                context.strokeStyle = rgba(col, clamp(0.88 * f, 0, 0.96));
-                context.lineWidth = 3.4 * (1 - uMid * 0.78);
+                context.strokeStyle = rgba(col, clamp(0.9 * f, 0, 0.96));
+                context.lineWidth = 3.5 * (1 - uMid * 0.78);
                 context.beginPath();
                 context.moveTo(p0.x, p0.y);
                 context.lineTo(p1.x, p1.y);
@@ -916,35 +1932,35 @@ export function WelcomeParticleField({
                 2,
                 curPt.x,
                 curPt.y,
-                34 * trailFade,
+                36 * trailFade,
               );
-              headGlow.addColorStop(0, rgba(trail.head, 0.42 * trailFade));
-              headGlow.addColorStop(0.55, rgba(trail.mid, 0.16 * trailFade));
+              headGlow.addColorStop(0, rgba(trail.head, 0.46 * trailFade));
+              headGlow.addColorStop(0.55, rgba(trail.mid, 0.18 * trailFade));
               headGlow.addColorStop(1, rgba(trail.tail, 0));
               context.fillStyle = headGlow;
               context.beginPath();
-              context.arc(curPt.x, curPt.y, 34 * trailFade, 0, TAU);
+              context.arc(curPt.x, curPt.y, 36 * trailFade, 0, TAU);
               context.fill();
               context.restore();
             }
 
-            // 抵达交汇点瞬间（0.34 ~ 0.84）：绽放一圈极克制的专属色能量接入波纹
-            if (progress >= 0.34 && progress <= 0.88) {
-              const rp = clamp((progress - 0.34) / 0.52);
+            // 抵达交汇点瞬间（0.41 ~ 0.90）：绽放一圈极克制的专属色能量接入波纹，接住破壁余势
+            if (progress >= 0.41 && progress <= 0.9) {
+              const rp = clamp((progress - 0.41) / 0.49);
               const easeR = 1 - Math.pow(1 - rp, 3);
-              const r1 = 14 + easeR * 68;
-              const a1 = (1 - rp) * 0.58;
+              const r1 = 14 + easeR * 72;
+              const a1 = (1 - rp) * 0.6;
               const col1 = sampleTrailColor(trail, rp * 0.55);
 
               context.save();
               context.strokeStyle = rgba(col1, a1);
-              context.lineWidth = 2.0 * (1 - rp * 0.55);
+              context.lineWidth = 2.1 * (1 - rp * 0.55);
               context.beginPath();
               context.arc(targetX, targetY, r1, 0, TAU);
               context.stroke();
 
               // 内层柔和光闪
-              const flashR = 26 + easeR * 36;
+              const flashR = 28 + easeR * 38;
               const fg = context.createRadialGradient(
                 targetX,
                 targetY,
@@ -953,7 +1969,7 @@ export function WelcomeParticleField({
                 targetY,
                 flashR,
               );
-              fg.addColorStop(0, rgba(trail.head, (1 - rp) * 0.22));
+              fg.addColorStop(0, rgba(trail.head, (1 - rp) * 0.24));
               fg.addColorStop(1, rgba(trail.head, 0));
               context.fillStyle = fg;
               context.beginPath();
@@ -962,10 +1978,10 @@ export function WelcomeParticleField({
               context.restore();
             }
 
-            // DOM 选中行星徽章平滑俯冲并收束融入接入点
+            // DOM 选中行星徽章蓄压微胀凝光后平滑俯冲收束融入接入点
             if (btn) {
-              const badgeOp = 1 - smoothstep(0.32, 0.52, progress);
-              const badgeSc = lerp(1.16, 0.46, diveP);
+              const badgeOp = 1 - smoothstep(0.4, 0.58, progress);
+              const badgeSc = lerp(1.16 + warpIntake * 0.08, 0.46, diveP);
               btn.style.opacity = badgeOp.toFixed(3);
               btn.style.pointerEvents = "none";
               btn.style.transform =
@@ -973,16 +1989,23 @@ export function WelcomeParticleField({
                 `scale(${badgeSc.toFixed(3)})`;
             }
           } else {
-            // 未选中的 8 颗行星：温柔减速向外微飘并安静淡出退幕
-            const exitP = clamp(progress / 0.46);
-            const easeExit = 1 - Math.pow(1 - exitP, 3);
+            // 未选中的 8 颗行星：蓄压期随星环微向心拉紧，推背开启后带惯性由慢到快重重甩出画框
             const dx = snap.sx - centerX;
             const dy = snap.sy - centerY;
             const dist = Math.hypot(dx, dy) || 1;
-            const driftX = snap.sx + (dx / dist) * 22 * easeExit + snap.tx * 12 * easeExit;
-            const driftY = snap.sy + (dy / dist) * 16 * easeExit + snap.ty * 10 * easeExit;
-            const op = (1 - exitP) * lerp(0.7, 0.86, snap.depth);
-            const sc = lerp(0.95, 0.78, easeExit) * lerp(0.86, 1.05, snap.depth);
+            const nx = dx / dist;
+            const ny = dy / dist;
+            const exitP = clamp((progress - 0.08) / 0.36);
+            const heavyFling = Math.pow(exitP, 1.95);
+            const intakePull = -20 * warpIntake;
+            const radialOffset = intakePull + lerp(150, 360, snap.depth) * heavyFling;
+            const driftX = snap.sx + nx * radialOffset + snap.tx * 24 * heavyFling;
+            const driftY = snap.sy + ny * radialOffset + snap.ty * 18 * heavyFling;
+            const op = (1 - smoothstep(0.14, 0.44, progress)) * lerp(0.74, 0.92, snap.depth);
+            const targetSc =
+              (1 - warpIntake * 0.04) *
+              (snap.depth > 0.48 ? lerp(1.0, 1.32, heavyFling) : lerp(0.94, 0.72, heavyFling));
+            const sc = targetSc * lerp(0.86, 1.05, snap.depth);
 
             if (btn) {
               btn.style.opacity = Math.max(0, op).toFixed(3);
@@ -994,7 +2017,8 @@ export function WelcomeParticleField({
           }
         }
       } else if (planetStates.length === VENDORS.length && !activeWarp) {
-        // 持续刷新最新位置快照，供发送瞬间无缝接棒
+        // 持续刷新最新位置与轨道彗尾快照，供发送瞬间 100% 零断层接棒
+        lastPlanetStates = planetStates;
         lastOrbitSnapshots = planetStates.map((st) => ({
           index: st.index,
           sx: st.sx,
@@ -1005,10 +2029,11 @@ export function WelcomeParticleField({
           isActive: st.isActiveProvider,
         }));
 
-        drawPlanetTrails(context, planetStates, fade, surgeProgress);
+        drawPlanetTrails(context, planetStates, fade, surgeProgress, dark);
         for (const st of planetStates) {
           const btn = badgeButtonsRef.current[st.index];
           if (!btn) continue;
+          const trail = resolveVendorTrail(st.vendor, dark);
           const depthScale = lerp(0.86, 1.08, st.depth);
           const depthAlpha = lerp(0.84, 1.0, st.depth);
           const activeScaleBoost = st.activeWeight * (0.1 + st.effortBoost * 0.1);
@@ -1024,16 +2049,27 @@ export function WelcomeParticleField({
           btn.style.transform =
             `translate3d(${(st.sx - 23).toFixed(2)}px, ${(st.sy - 23).toFixed(2)}px, 0) ` +
             `scale(${(clamp(st.stagger, 0, 1.15) * depthScale * emphasisScale).toFixed(3)})`;
-          btn.style.borderColor =
+          // 量化并缓存 borderColor / boxShadow，避免 9 颗 backdrop-blur 行星按钮每帧重复触发昂贵重绘
+          const efQ = Math.round(st.effortBoost * 50) / 50;
+          const nextBorderColor =
             st.isSelected || st.isHovered || st.activeWeight > 0.25
-              ? rgba(st.vendor.trail.head, clamp(0.62 + st.effortBoost * 0.34, 0, 0.96))
-              : rgba(st.vendor.trail.head, 0.22);
-          btn.style.boxShadow =
+              ? rgba(trail.head, Number(clamp(0.62 + efQ * 0.34, 0, 0.96).toFixed(2)))
+              : rgba(trail.head, dark ? 0.34 : 0.22);
+          if (lastBorderColors[st.index] !== nextBorderColor) {
+            lastBorderColors[st.index] = nextBorderColor;
+            btn.style.borderColor = nextBorderColor;
+          }
+          const innerRim = dark ? "0 1px 0 rgba(255,255,255,0.16) inset, " : "";
+          const nextBoxShadow =
             st.isSelected || st.isHovered
-              ? `0 0 0 2px ${rgba(st.vendor.trail.head, 0.48)}, 0 14px 32px -6px ${rgba(st.vendor.trail.head, 0.38)}`
+              ? `${innerRim}0 0 0 2px ${rgba(trail.head, dark ? 0.56 : 0.48)}, 0 14px 32px -6px ${rgba(trail.head, dark ? 0.48 : 0.38)}`
               : st.activeWeight > 0.15
-                ? `0 0 0 ${(2 + st.effortBoost * 1.4).toFixed(1)}px ${rgba(st.vendor.trail.head, 0.32 + st.effortBoost * 0.3)}, 0 0 ${(14 + st.effortBoost * 18).toFixed(0)}px ${rgba(st.vendor.trail.head, 0.24 + st.effortBoost * 0.28)}, 0 12px 28px -6px ${rgba(st.vendor.trail.head, 0.36)}`
-                : `0 0 0 1px ${rgba(st.vendor.trail.head, 0.14)}, 0 10px 22px -8px ${rgba(st.vendor.trail.head, 0.2)}`;
+                ? `${innerRim}0 0 0 ${(2 + efQ * 1.4).toFixed(1)}px ${rgba(trail.head, Number((0.36 + efQ * 0.3).toFixed(2)))}, 0 0 ${(16 + efQ * 20).toFixed(0)}px ${rgba(trail.head, Number(((dark ? 0.34 : 0.24) + efQ * 0.28).toFixed(2)))}, 0 12px 28px -6px ${rgba(trail.head, dark ? 0.46 : 0.36)}`
+                : `${innerRim}0 0 0 1px ${rgba(trail.head, dark ? 0.2 : 0.14)}, 0 10px 24px -8px ${rgba(trail.head, dark ? 0.34 : 0.2)}`;
+          if (lastBoxShadows[st.index] !== nextBoxShadow) {
+            lastBoxShadows[st.index] = nextBoxShadow;
+            btn.style.boxShadow = nextBoxShadow;
+          }
         }
       } else {
         hideAllBadges();
@@ -1116,10 +2152,19 @@ export function WelcomeParticleField({
     motionPreference.addEventListener("change", scheduleFrame);
     document.addEventListener("visibilitychange", updateVisibility);
     requestPaintRef.current = scheduleFrame;
+    paintNowRef.current = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      previousFrame = 0;
+      draw(performance.now());
+    };
     scheduleFrame();
 
     return () => {
       requestPaintRef.current = null;
+      paintNowRef.current = null;
       if (frameId !== null) window.cancelAnimationFrame(frameId);
       observer.disconnect();
       area.removeEventListener("pointermove", movePointer);
@@ -1159,7 +2204,7 @@ export function WelcomeParticleField({
               e.stopPropagation();
               onSelectVendorRef.current?.(vendor.id);
             }}
-            className="absolute left-0 top-0 flex h-[46px] w-[46px] cursor-pointer items-center justify-center rounded-full border-[1.5px] border-white bg-white/95 opacity-0 backdrop-blur-md transition-[background-color] duration-200 hover:bg-white"
+            className="absolute left-0 top-0 flex h-[46px] w-[46px] cursor-pointer items-center justify-center rounded-full border-[1.5px] border-white bg-white/95 opacity-0 backdrop-blur-md transition-[background-color] duration-200 hover:bg-white dark:border-white/15 dark:bg-[#121522]/82 dark:hover:bg-[#191D30]/95"
             style={{ willChange: "transform, opacity" }}
           >
             <canvas

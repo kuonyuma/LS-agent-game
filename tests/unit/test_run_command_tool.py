@@ -16,7 +16,7 @@ async def test_run_command_passes_explicit_check_flag(monkeypatch):
 
     def fake_run(command, **kwargs):
         calls.append((command, kwargs))
-        return CompletedProcess(command, 0, stdout="完成", stderr="")
+        return CompletedProcess(command, 0, stdout="完成".encode(), stderr=b"")
 
     monkeypatch.setattr(run_command.subprocess, "run", fake_run)
 
@@ -30,8 +30,9 @@ async def test_run_command_passes_explicit_check_flag(monkeypatch):
             {
                 "shell": True,
                 "capture_output": True,
-                "text": True,
+                "text": False,
                 "check": False,
+                "cwd": None,
             },
         )
     ]
@@ -40,7 +41,7 @@ async def test_run_command_passes_explicit_check_flag(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_command_returns_nonzero_exit_output(monkeypatch):
     def fake_run(command, **kwargs):
-        return CompletedProcess(command, 1, stdout="", stderr="执行失败")
+        return CompletedProcess(command, 1, stdout=b"", stderr="执行失败".encode())
 
     monkeypatch.setattr(run_command.subprocess, "run", fake_run)
 
@@ -48,6 +49,26 @@ async def test_run_command_returns_nonzero_exit_output(monkeypatch):
 
     assert result.is_error
     assert result.content == "执行失败returncode1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stderr_encoding", ["gbk", "utf-16"])
+async def test_run_command_decodes_stdout_and_stderr_independently(monkeypatch, stderr_encoding):
+    def fake_run(command, **kwargs):
+        return CompletedProcess(
+            command,
+            1,
+            stdout="已读取文件（✓）\r\n".encode(),
+            stderr="命令执行失败\r\n".encode(stderr_encoding),
+        )
+
+    monkeypatch.setattr(run_command.subprocess, "run", fake_run)
+    monkeypatch.setattr(run_command.locale, "getencoding", lambda: "gbk")
+
+    result = await RunCommandTool().run({"command": "echo 输出"})
+
+    assert result.is_error
+    assert result.content == "已读取文件（✓）\n命令执行失败\nreturncode1"
 
 
 @pytest.mark.asyncio
@@ -72,7 +93,7 @@ async def test_run_command_uses_workspace_root_as_cwd(monkeypatch, tmp_path: Pat
 
     def fake_run(command, **kwargs):
         calls.append((command, kwargs))
-        return CompletedProcess(command, 0, stdout="ok", stderr="")
+        return CompletedProcess(command, 0, stdout=b"ok", stderr=b"")
 
     monkeypatch.setattr(run_command.subprocess, "run", fake_run)
 

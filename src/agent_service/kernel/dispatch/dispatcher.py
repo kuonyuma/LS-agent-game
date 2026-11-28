@@ -90,15 +90,19 @@ class ToolDispatcher:
         for call in calls:
             if not call.name or not call.id:
                 raise InvalidToolCallError("工具调用尚未分配名称和 ID。")
-            args = deepcopy(call.args or {})
             tool = self.registry.get(call.name)
+            if tool is not None:
+                bound_arguments = tool.bind_arguments(call.args or {})
+                if call.args is not None or bound_arguments:
+                    call.args = bound_arguments
+            args = deepcopy(call.args or {})
             blocked = "当前为最终总结轮，工具调用已关闭。" if disabled else ""
             if tool is not None and not blocked:
                 blocked = self.policy.blocked_reason(call.name, tool, phase)
             needs_approval = bool(
                 not blocked
                 and tool is not None
-                and not tool.read_only
+                and tool.requires_approval()
                 and call.name in self.allowed_names
             )
             request = (

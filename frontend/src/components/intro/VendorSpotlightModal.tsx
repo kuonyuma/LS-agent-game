@@ -1,5 +1,6 @@
 import { Check, Sparkles } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { useTheme } from "../../theme";
 import type { ProviderInfo } from "../../types";
 import {
   CARD_BUFFER_H,
@@ -8,6 +9,8 @@ import {
   drawCardAmbientBg,
   easeSpringOut,
   findVendorSpec,
+  resolveVendorPrimary,
+  resolveVendorStudio,
   rgba,
   type VendorId,
 } from "./vendorCatalog";
@@ -27,6 +30,7 @@ export function VendorSpotlightModal({
   onSelectProvider,
   onClose,
 }: VendorSpotlightModalProps) {
+  const { isDark } = useTheme();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const sheenRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -91,8 +95,8 @@ export function VendorSpotlightModal({
 
       ctx.setTransform(canvas.width / CARD_BUFFER_W, 0, 0, canvas.height / CARD_BUFFER_H, 0, 0);
       ctx.clearRect(0, 0, CARD_BUFFER_W, CARD_BUFFER_H);
-      drawCardAmbientBg(ctx, CARD_BUFFER_W, CARD_BUFFER_H, vendor, clamp(focus));
-      vendor.drawScene(ctx, CARD_BUFFER_W, CARD_BUFFER_H, elapsed, clamp(focus), show);
+      drawCardAmbientBg(ctx, CARD_BUFFER_W, CARD_BUFFER_H, vendor, clamp(focus), isDark);
+      vendor.drawScene(ctx, CARD_BUFFER_W, CARD_BUFFER_H, elapsed, clamp(focus), show, isDark);
 
       frameId = window.requestAnimationFrame(draw);
     };
@@ -102,9 +106,12 @@ export function VendorSpotlightModal({
       if (frameId !== null) window.cancelAnimationFrame(frameId);
       window.removeEventListener("pointermove", onMove);
     };
-  }, [vendor]);
+  }, [vendor, isDark]);
 
   if (!vendor) return null;
+
+  const studio = resolveVendorStudio(vendor, isDark);
+  const primary = resolveVendorPrimary(vendor, isDark);
 
   return (
     <div
@@ -114,7 +121,9 @@ export function VendorSpotlightModal({
       onClick={onClose}
       className="fixed inset-0 z-40 flex flex-col items-center justify-center px-4 backdrop-blur-[10px] transition-opacity"
       style={{
-        background: `radial-gradient(ellipse 72% 64% at 50% 48%, ${rgba(vendor.studio.haloA, 0.12)} 0%, ${rgba(vendor.studio.bgEdge, 0.72)} 100%)`,
+        background: isDark
+          ? `radial-gradient(ellipse 72% 64% at 50% 48%, ${rgba(studio.haloA, 0.2)} 0%, rgba(5, 6, 12, 0.84) 100%)`
+          : `radial-gradient(ellipse 72% 64% at 50% 48%, ${rgba(studio.haloA, 0.12)} 0%, ${rgba(studio.bgEdge, 0.72)} 100%)`,
       }}
     >
       <div
@@ -127,7 +136,9 @@ export function VendorSpotlightModal({
           className="intro-vendor-card relative h-[256px] w-[400px] max-w-[88vw] cursor-default sm:h-[278px] sm:w-[434px]"
           style={{
             position: "relative",
-            boxShadow: `0 1.5px 0 rgba(255,255,255,1) inset, 0 0 0 1px ${rgba(vendor.primary, 0.24)}, 0 40px 88px -24px rgba(15,23,42,0.22), 0 20px 52px -14px ${rgba(vendor.primary, 0.24)}`,
+            boxShadow: isDark
+              ? `0 1px 0 rgba(255,255,255,0.2) inset, 0 0 0 1px ${rgba(primary, 0.36)}, 0 40px 88px -24px rgba(0,0,0,0.78), 0 20px 56px -14px ${rgba(primary, 0.32)}`
+              : `0 1.5px 0 rgba(255,255,255,1) inset, 0 0 0 1px ${rgba(primary, 0.24)}, 0 40px 88px -24px rgba(15,23,42,0.22), 0 20px 52px -14px ${rgba(primary, 0.24)}`,
           }}
         >
           <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
@@ -145,8 +156,8 @@ export function VendorSpotlightModal({
             }}
             className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium shadow-sm backdrop-blur-md transition ${
               isCurrentProvider
-                ? "border-emerald-200/90 bg-white/90 text-emerald-700"
-                : "border-neutral-200/90 bg-white/92 text-neutral-800 hover:-translate-y-0.5 hover:border-neutral-300 hover:bg-white hover:shadow-md"
+                ? "border-emerald-200/90 bg-white/90 text-emerald-700 dark:border-emerald-400/30 dark:bg-[#121522]/90 dark:text-emerald-300"
+                : "border-neutral-200/90 bg-white/92 text-neutral-800 hover:-translate-y-0.5 hover:border-neutral-300 hover:bg-white hover:shadow-md dark:border-white/[0.18] dark:bg-[#F4F5FA] dark:text-[#090A10] dark:hover:bg-white"
             }`}
           >
             {isCurrentProvider ? (
@@ -156,7 +167,7 @@ export function VendorSpotlightModal({
               </>
             ) : (
               <>
-                <Sparkles className="h-3.5 w-3.5 text-violet-600" />
+                <Sparkles className="h-3.5 w-3.5 text-violet-600 dark:text-violet-700" />
                 <span>切换到 {matchedProvider.label}</span>
               </>
             )}
